@@ -304,6 +304,20 @@
           hideDownloadLoader();
           setStatus('Download cancelled.');
         }
+      } else if (
+        err instanceof TypeError &&
+        /^https?:\/\/[^/]*\.tiktokio\.com\//i.test(url)
+      ) {
+        // The browser fetch to the TikTok link was blocked (CORS / the
+        // phone's network) — "Failed to fetch". A plain navigation to the
+        // same URL is NOT subject to CORS, and the video preview already
+        // proves the link loads on this device. Hand the download to the
+        // browser instead of showing an error. The file saves under the
+        // server's tikio.com name rather than the caption name — a working
+        // download beats a pretty name.
+        hideDownloadLoader();
+        setStatus('Downloading directly…');
+        navigateDownload(url);
       } else {
         showDownloadError(
           err && err.message
