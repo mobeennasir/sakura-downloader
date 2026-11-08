@@ -310,7 +310,10 @@ async function resolvePinterest(url) {
 async function resolveTikTok(url) {
   try {
     const info = await ytdlp.getInfo(url);
-    const items = ytdlpInfoToItems(info, info.title || 'TikTok video', url);
+    // TikTok's CDN (Akamai) rejects a direct server-side fetch of the
+    // signed video URL (403), so the download must go through yt-dlp —
+    // forceYtdlp makes every item carry its format id for the /dl proxy.
+    const items = ytdlpInfoToItems(info, info.title || 'TikTok video', url, { forceYtdlp: true });
     if (items.length > 0) {
       return { title: info.title || 'TikTok video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description) };
     }
@@ -336,7 +339,15 @@ async function resolveTikTok(url) {
           'TikTok video'
         )
       )
-      .filter(Boolean);
+      .filter(Boolean)
+      // Same Akamai block as the primary path: the ttdl URL is a TikTok
+      // CDN link too, so the download goes through yt-dlp (format
+      // 'download' is yt-dlp's combined mp4 for TikTok) instead of the
+      // proxy fetching the CDN URL directly.
+      .map((item) => ({
+        ...item,
+        ytdlp: { url, formatId: 'download', ext: 'mp4', client: 'tv_embedded' },
+      }));
     if (items.length > 0) {
       return { title: data.title || 'TikTok video', thumbnail: data.thumbnail || null, items, caption: pickCaption(data.title) };
     }
@@ -454,10 +465,18 @@ async function resolveTwitter(url) {
 // so those items carry a `ytdlp` field and the /dl proxy converts them to mp4
 // with ffmpeg instead of handing the user a playlist file.
 // ---------------------------------------------------------------------------
-function ytdlpInfoToItems(info, fallbackTitle, sourceUrl) {
+function ytdlpInfoToItems(info, fallbackTitle, sourceUrl, opts = {}) {
   const items = [];
   const entries = Array.isArray(info.entries) ? info.entries : [info];
   const pageUrl = sourceUrl || info.webpage_url || info.original_url || null;
+  // forceYtdlp: route the file through yt-dlp at download time instead of
+  // handing the browser a direct CDN URL. TikTok needs this: its CDN
+  // (Akamai) rejects a direct server-side fetch of the signed video URL
+  // with 403, whatever User-Agent or Referer is sent — but yt-dlp
+  // downloads the same video fine, so the /dl proxy must re-fetch it
+  // through yt-dlp. Only TikTok sets this; every other platform keeps
+  // direct CDN downloads, which are faster and their CDNs allow them.
+  const forceYtdlp = opts.forceYtdlp === true;
   for (const entry of entries) {
     if (!entry) continue;
     const formats = Array.isArray(entry.formats) ? entry.formats : [];
@@ -512,9 +531,11 @@ function ytdlpInfoToItems(info, fallbackTitle, sourceUrl) {
         fallbackTitle
       );
       if (!item) return null;
-      if (isHls || ytdlp) {
+      if (isHls || ytdlp || forceYtdlp) {
         // HLS is converted to a real mp4 by the proxy; a merged
-        // video+audio pair is merged by it the same way.
+        // video+audio pair is merged by it the same way. With forceYtdlp
+        // (TikTok) a direct file goes through yt-dlp the same way, so the
+        // descriptor is the format itself, not a merge.
         item.ext = 'mp4';
         item.ytdlp = ytdlp || {
           url: pageUrl,
