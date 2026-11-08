@@ -86,6 +86,25 @@ function pickCaption(...candidates) {
   return null;
 }
 
+// Best-effort caption for resolvers whose primary source carries no caption
+// text (igdl for Instagram, fbdown for Facebook): ask yt-dlp for the post's
+// description. It runs alongside the primary fetch, has a short timeout,
+// and never fails the download — a missing caption just means no caption
+// box, as before.
+const CAPTION_FETCH_TIMEOUT_MS = 15000;
+async function fetchCaption(url) {
+  try {
+    const info = await withTimeout(
+      ytdlp.getInfo(url),
+      CAPTION_FETCH_TIMEOUT_MS,
+      'caption'
+    );
+    return pickCaption(info.description);
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Download filenames. Every file must get a name unique to the media it
 // came from, or the browser sees the same name twice and asks "download
@@ -168,6 +187,10 @@ async function resolveInstagram(url) {
   let title = 'Instagram media';
   let caption = null;
 
+  // igdl carries no caption text, so read the post's description with
+  // yt-dlp alongside — best effort, never blocks the download.
+  const captionPromise = fetchCaption(url);
+
   try {
     const data = await withTimeout(igdl(url), config.upstreamTimeoutMs, 'Instagram');
     const raw = Array.isArray(data && data.result)
@@ -211,6 +234,7 @@ async function resolveInstagram(url) {
 
   items = dedupeByUrl(items);
   if (items.length === 0) throw Errors.noMedia();
+  if (!caption) caption = await captionPromise;
   return { title, thumbnail: items[0].thumbnail || null, items, caption };
 }
 
@@ -262,7 +286,7 @@ async function resolvePinterest(url) {
       'Pinterest media'
     ),
   ].filter(Boolean);
-  return { title: pin.title || 'Pinterest media', thumbnail: pin.image || null, items, caption: null };
+  return { title: pin.title || 'Pinterest media', thumbnail: pin.image || null, items, caption: pickCaption(pin.title) };
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +336,9 @@ async function resolveTikTok(url) {
 // Facebook — btch primary (HD then Normal), yt-dlp fallback.
 // ---------------------------------------------------------------------------
 async function resolveFacebook(url) {
+  // fbdown carries no caption text, so read the post's description with
+  // yt-dlp alongside — best effort, never blocks the download.
+  const captionPromise = fetchCaption(url);
   try {
     const data = await withTimeout(fbdown(url), config.upstreamTimeoutMs, 'Facebook');
     if (data && data.status === true && (data.HD || data.Normal_video)) {
@@ -331,7 +358,7 @@ async function resolveFacebook(url) {
         .filter(Boolean);
       const best = dedupeByUrl(items);
       if (best.length > 0) {
-        return { title: 'Facebook video', thumbnail: null, items: best, caption: null };
+        return { title: 'Facebook video', thumbnail: null, items: best, caption: await captionPromise };
       }
     }
     throw new Error((data && data.message) || 'No media URL found');
@@ -422,9 +449,28 @@ function ytdlpInfoToItems(info, fallbackTitle, sourceUrl) {
   for (const entry of entries) {
     if (!entry) continue;
     const formats = Array.isArray(entry.formats) ? entry.formats : [];
-    const videoFormats = formats.filter(
-      (f) => f.vcodec && f.vcodec !== 'none' && f.url
+    // Audio matters: a video-only file downloads silent, and the tallest
+    // format is usually a video-only DASH stream. Pick in order:
+    // 1. a combined format (video + audio in one file), tallest wins;
+    // 2. a format with no codec info at all (some extractors don't report
+    //    codecs for progressive files — those are combined files);
+    // 3. the best video-only format merged with the best audio-only
+    //    format (the proxy merges them with ffmpeg, buffered to disk).
+    const hasAudio = (f) => Boolean(f.acodec && f.acodec !== 'none');
+    const hasVideo = (f) => Boolean(f.vcodec && f.vcodec !== 'none');
+    const byHeight = (a, b) =>
+      (b.height || 0) - (a.height || 0) || (b.filesize || 0) - (a.filesize || 0);
+    // Direct files first, then HLS; within each, tallest wins.
+    const preferDirect = (pool) => {
+      const direct = pool.filter((f) => (f.protocol || '') === 'https');
+      const use = direct.length > 0 ? direct : pool;
+      return [...use].sort(byHeight)[0];
+    };
+    const videoFormats = formats.filter((f) => hasVideo(f) && f.url);
+    const noInfoFormats = formats.filter(
+      (f) => !f.vcodec && !f.acodec && f.url && (f.ext || '').toLowerCase() === 'mp4'
     );
+    const audioFormats = formats.filter((f) => !hasVideo(f) && hasAudio(f) && f.url);
     const imageFormats = formats.filter(
       (f) =>
         (!f.vcodec || f.vcodec === 'none') &&
@@ -432,37 +478,60 @@ function ytdlpInfoToItems(info, fallbackTitle, sourceUrl) {
         f.url &&
         IMAGE_EXTS.has((f.ext || '').toLowerCase())
     );
-    if (videoFormats.length > 0) {
-      // Direct files first, then HLS; within each, tallest wins.
-      const direct = videoFormats.filter((f) => (f.protocol || '') === 'https');
-      const pool = direct.length > 0 ? direct : videoFormats;
-      const best = [...pool].sort(
-        (a, b) => (b.height || 0) - (a.height || 0) || (b.filesize || 0) - (a.filesize || 0)
-      )[0];
-      const isHls = String(best.protocol || '').startsWith('m3u8');
+    const makeVideoItem = (format, ytdlp) => {
+      const isHls = String(format.protocol || '').startsWith('m3u8');
       const item = normalizeItem(
         {
-          url: best.url,
+          url: format.url,
           thumbnail: entry.thumbnail || info.thumbnail || null,
           type: 'video',
           title: entry.title || info.title,
-          quality: best.height ? `${best.height}p` : null,
-          size: best.filesize || best.filesize_approx || null,
+          quality: format.height ? `${format.height}p` : null,
+          size: format.filesize || format.filesize_approx || null,
         },
         fallbackTitle
       );
-      if (item) {
-        if (isHls) {
-          // The proxy converts the HLS stream to a real mp4.
-          item.ext = 'mp4';
-          item.ytdlp = {
-            url: pageUrl,
-            formatId: best.format_id,
-            ext: 'mp4',
-            client: info._client || 'tv_embedded',
-          };
-        }
-        items.push(item);
+      if (!item) return null;
+      if (isHls || ytdlp) {
+        // HLS is converted to a real mp4 by the proxy; a merged
+        // video+audio pair is merged by it the same way.
+        item.ext = 'mp4';
+        item.ytdlp = ytdlp || {
+          url: pageUrl,
+          formatId: format.format_id,
+          ext: 'mp4',
+          client: info._client || 'tv_embedded',
+        };
+      }
+      return item;
+    };
+    const combined = videoFormats.filter((f) => hasAudio(f));
+    const best =
+      (combined.length > 0 ? preferDirect(combined) : null) ||
+      (noInfoFormats.length > 0 ? preferDirect(noInfoFormats) : null);
+    if (best) {
+      const item = makeVideoItem(best);
+      if (item) items.push(item);
+    } else if (videoFormats.length > 0) {
+      const videoOnly = videoFormats.filter((f) => !hasAudio(f));
+      const video = videoOnly.length > 0 ? preferDirect(videoOnly) : null;
+      const audio =
+        audioFormats.length > 0
+          ? [...audioFormats].sort((a, b) => (b.abr || 0) - (a.abr || 0))[0]
+          : null;
+      if (video && audio) {
+        const item = makeVideoItem(video, {
+          url: pageUrl,
+          formatId: `${video.format_id}+${audio.format_id}`,
+          ext: 'mp4',
+          client: info._client || 'tv_embedded',
+        });
+        if (item) items.push(item);
+      } else if (video) {
+        // No audio stream exists at all — a muted original has no audio
+        // to keep, so the silent file is better than nothing.
+        const item = makeVideoItem(video);
+        if (item) items.push(item);
       }
     } else if (imageFormats.length > 0) {
       const best = [...imageFormats].sort(

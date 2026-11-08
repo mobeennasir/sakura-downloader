@@ -165,11 +165,17 @@
 
   // A failed resolve or convert goes to the dedicated animated error page,
   // keyed by the server's error code — not the inline status line. The page
-  // has its own "Try again" (back) and "Back home" actions.
-  function goToErrorPage(err) {
+  // has its own "Try again" (back) and "Back home" actions, plus a
+  // WhatsApp report button. The link that failed rides along as ?url= so
+  // the report comes prefilled — the user only has to tap send.
+  function goToErrorPage(err, url) {
     const code =
       err && typeof err.code === 'string' && /^[a-z_]+$/.test(err.code) ? err.code : 'unknown';
-    window.location.assign(`/error?code=${code}`);
+    const suffix =
+      typeof url === 'string' && url.trim()
+        ? `&url=${encodeURIComponent(url.trim())}`
+        : '';
+    window.location.assign(`/error?code=${code}${suffix}`);
   }
 
   // --- results ---------------------------------------------------------------
@@ -407,7 +413,7 @@
         a.remove();
         saveRecent(url, 'youtube', info.title);
       } catch (err) {
-        goToErrorPage(err);
+        goToErrorPage(err, url);
       } finally {
         button.disabled = false;
       }
@@ -445,11 +451,15 @@
   async function runSingle(url, platform, { mediaType } = {}) {
     const detected = platform || detectPlatform(url);
     if (!detected) {
-      goToErrorPage({ code: 'invalid_url' });
+      goToErrorPage({ code: 'invalid_url' }, url);
       return;
     }
     if (detected === 'youtube') {
-      await runYouTube(url);
+      try {
+        await runYouTube(url);
+      } catch (err) {
+        goToErrorPage(err, url);
+      }
       return;
     }
     setLoading(`Asking ${PLATFORM_NAMES[detected]} for the media…`);
@@ -464,8 +474,32 @@
       });
       saveRecent(url, detected, data.title);
     } catch (err) {
-      goToErrorPage(err);
+      goToErrorPage(err, url);
     }
+  }
+
+  // --- hamburger ---------------------------------------------------------------
+  // Small screens only: the toggle button is hidden by CSS on desktop, and
+  // the nav is always visible there — this is a no-op in that case.
+  function wireNavToggle() {
+    const toggle = $('.nav-toggle');
+    const header = $('.site-header');
+    if (!toggle || !header) return;
+    function setOpen(open) {
+      header.classList.toggle('nav-open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.setAttribute('aria-label', open ? 'Close menu' : 'Menu');
+    }
+    toggle.addEventListener('click', () => {
+      setOpen(!header.classList.contains('nav-open'));
+    });
+    // A tap on a link, or Escape, closes the menu again.
+    header.addEventListener('click', (event) => {
+      if (event.target.closest('.site-nav a')) setOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    });
   }
 
   // --- history ---------------------------------------------------------------------
@@ -650,6 +684,7 @@
   }
 
   wirePasteButton();
+  wireNavToggle();
   wirePlatformPage();
   wireHomePage();
   renderRecent();

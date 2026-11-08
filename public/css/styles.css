@@ -200,10 +200,19 @@ video {
 }
 
 .site-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   text-decoration: none;
   font-size: 0.9375rem;
   font-weight: 500;
   color: var(--color-muted);
+}
+
+.site-nav a svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 .site-nav a:hover,
@@ -212,6 +221,45 @@ video {
   text-decoration: underline;
   text-decoration-color: var(--color-accent-2);
   text-underline-offset: 0.25em;
+}
+
+/* Hamburger: hidden on desktop (the nav is a plain row there). Only the
+   ≤768px rules below show it, and only there does the nav collapse. */
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 5px;
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-ink);
+}
+
+.nav-toggle span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: transform var(--dur-short) var(--ease-out), opacity var(--dur-short) var(--ease-out);
+}
+
+/* Open state: the three bars become an X. */
+.site-header.nav-open .nav-toggle span:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.site-header.nav-open .nav-toggle span:nth-child(2) {
+  opacity: 0;
+}
+
+.site-header.nav-open .nav-toggle span:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
 }
 
 /* Hero: the desk. Daylight from the left, the URL bar as the job on it. */
@@ -412,6 +460,18 @@ video {
 
 .btn--secondary:hover {
   box-shadow: var(--edge-stock), var(--cast-stock-lift);
+}
+
+/* WhatsApp green, for the error page's report button — the one brand
+   colour outside the Coral theme, so it reads as WhatsApp at a glance. */
+.btn--whatsapp {
+  background: #128c7e;
+  color: #fff;
+  box-shadow: var(--cast-stock);
+}
+
+.btn--whatsapp:hover {
+  box-shadow: var(--cast-stock-lift);
 }
 
 /* The settled state (Copied) is pressed in coral. */
@@ -1097,8 +1157,33 @@ video {
 }
 
 @media (max-width: 768px) {
+  .site-header .container {
+    flex-wrap: wrap;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+  }
+
   .site-nav {
+    display: none;
+    margin-left: 0;
+    width: 100%;
     gap: var(--space-sm);
+  }
+
+  .site-header.nav-open .site-nav {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    padding-top: var(--space-sm);
+    border-top: var(--rule-hair) solid var(--color-rule);
+  }
+
+  .site-header.nav-open .site-nav a {
+    width: 100%;
+    padding-block: var(--space-xs);
   }
 
   .site-nav a {

@@ -79,7 +79,7 @@ cd sakura-downloader
 npm ci
 cp .env.example .env   # optional; all settings have defaults
 npm start              # http://localhost:3000
-npm test               # vitest + supertest suite (73 tests)
+npm test               # vitest + supertest suite (82 tests)
 ```
 
 ## How it works
@@ -165,7 +165,7 @@ src/
 public/
   css/styles.css     Coral theme tokens, layout, error animations
   js/snatcher.js     one shared frontend module (fetch, results, batch, history)
-  favicon.svg        coral bolt on a cotton square
+  favicon.svg        white bolt on a deep-coral rounded square
   og.png             social preview image
 views/
   home.ejs           hero URL bar + platform grid + recent links

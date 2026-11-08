@@ -59,6 +59,18 @@ describe('mapYtDlpError', () => {
     ).toBe('forbidden');
   });
 
+  it('maps "No video formats found" to no_media, not upstream_error', () => {
+    // A Pinterest image pin: yt-dlp's extractor finds no video formats,
+    // but the pin (and its image) exists — btch finds it. Retrying other
+    // clients never helps, so this must not read as a 502.
+    expect(
+      mapYtDlpError(
+        'ERROR: [Pinterest] 767300855301081893: No video formats found!; please report this issue on https://github.com/yt-dlp/yt-dlp/issues'
+      ).code
+    ).toBe('no_media');
+    expect(mapYtDlpError('ERROR: [youtube] abc: No formats found!').code).toBe('no_media');
+  });
+
   it('falls through to upstream_error for anything else', () => {
     expect(mapYtDlpError('ERROR: [youtube] abc: Something odd happened').code).toBe(
       'upstream_error'

@@ -18,6 +18,12 @@ const config = {
   ytdlpCookies: process.env.YTDLP_COOKIES || null,
   ytdlpCookiesFile: process.env.YTDLP_COOKIES_FILE || null,
 
+  // WhatsApp number the error page's "Report on WhatsApp" button writes
+  // to (wa.me link, digits only, no +). The owner's number, given for
+  // error reports — it is public by design: the button is how users reach
+  // him. Override with REPORT_WHATSAPP_NUMBER if it ever changes.
+  reportWhatsappNumber: process.env.REPORT_WHATSAPP_NUMBER || '923136701631',
+
   // Secret used to sign /dl download URLs. A random per-boot secret is fine for
   // a single instance; set DOWNLOAD_SECRET in env when running more than one.
   downloadSecret:

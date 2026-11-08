@@ -222,7 +222,29 @@ app.get('/', (req, res) => {
 app.get('/error', (req, res) => {
   const code = typeof req.query.code === 'string' ? req.query.code : 'unknown';
   const page = errorPageFor(code);
-  res.status(page.status).render('error', { code, page, platforms: PLATFORMS });
+  // "Report on WhatsApp" prefills a message to the owner with the error
+  // and the link that failed, so the user only has to tap send. The URL
+  // rides in as ?url= from the redirect and is used only when it parses
+  // as a real http(s) link — anything else is dropped, never echoed.
+  let attemptedUrl = null;
+  if (typeof req.query.url === 'string' && req.query.url.length <= 2000) {
+    try {
+      const parsed = new URL(req.query.url);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        attemptedUrl = req.query.url;
+      }
+    } catch {
+      // Not a URL — leave it out of the report.
+    }
+  }
+  const lines = [
+    'Snatcher error report',
+    `Error: ${code} — ${page.title}`,
+    `Link: ${attemptedUrl || 'not given'}`,
+    `Time: ${new Date().toISOString()}`,
+  ];
+  const reportUrl = `https://wa.me/${config.reportWhatsappNumber}?text=${encodeURIComponent(lines.join('\n'))}`;
+  res.status(page.status).render('error', { code, page, platforms: PLATFORMS, reportUrl });
 });
 
 app.get('/:platform', (req, res, next) => {
@@ -230,7 +252,11 @@ app.get('/:platform', (req, res, next) => {
   // Fixed routes defined below (e.g. /dl) must not be swallowed by this
   // catch-all — let them fall through.
   if (platform === 'dl') return next();
-  if (platform === 'favicon.ico') return res.status(404).end();
+  // Browsers still ask for /favicon.ico even though the page links the SVG
+  // — serve the same file instead of a 404.
+  if (platform === 'favicon.ico') {
+    return res.sendFile(path.join(__dirname, 'public', 'favicon.svg'));
+  }
   const cfg = PLATFORMS[platform];
   if (!cfg) return res.redirect('/error?code=not_found');
   res.render('platform', { platform: cfg, platforms: PLATFORMS });

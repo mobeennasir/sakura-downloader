@@ -141,6 +141,16 @@ function mapYtDlpError(stderr) {
   if (/private video|private post|login required|only available to|this video is private/i.test(s)) {
     return Errors.privateOrRemoved();
   }
+  // A pin/post yt-dlp's extractor cannot read at all ("No video formats
+  // found!") — the content exists, but there is no downloadable format in
+  // it. It is deterministic: no other player client will find formats
+  // either, so this maps to no_media and getInfo stops retrying after the
+  // first client. The resolver then falls back to its other adapter (btch
+  // for Pinterest), which often does find the media — an image pin reads
+  // exactly this way.
+  if (/no video formats found|no formats found/i.test(s)) {
+    return Errors.noMedia();
+  }
   // Dead / removed videos. yt-dlp's message is "This video is unavailable"
   // — "video" and "unavailable" are NOT adjacent, so a plain
   // /video unavailable/ never matches it and the error fell through to a
@@ -180,7 +190,13 @@ async function getInfo(url) {
       return { ...JSON.parse(firstLine), _client: client };
     } catch (err) {
       lastError = err;
-      if (isVerdictError(err)) {
+      // Verdict errors are final — and no_media is deterministic too. A
+      // client that finds no formats will not differ on the next one, so
+      // retrying all six burns ~2 minutes and the browser gives up first
+      // (60 s frontend timeout), before the resolver's other adapter ever
+      // gets its turn. Stop after the first client and let the caller
+      // fall back.
+      if (isVerdictError(err) || (err && err.code === 'no_media')) {
         throw err;
       }
       logger.warn({ client, err: err.message }, 'yt-dlp client failed, trying next');

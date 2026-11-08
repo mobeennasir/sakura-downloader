@@ -4,9 +4,12 @@
       <svg aria-hidden="true"><use href="#i-logo" /></svg>
       Snatcher
     </a>
-    <nav class="site-nav" aria-label="Platforms">
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="siteNav" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+    <nav class="site-nav" id="siteNav" aria-label="Platforms">
       <% for (const key of Object.keys(platforms)) { %>
-        <a href="/<%= key %>" <% if (typeof current !== 'undefined' && current === key) { %>aria-current="page"<% } %>><%= platforms[key].name %></a>
+        <a href="/<%= key %>" <% if (typeof current !== 'undefined' && current === key) { %>aria-current="page"<% } %>><svg aria-hidden="true"><use href="#i-<%= key %>" /></svg><%= platforms[key].name %></a>
       <% } %>
     </nav>
   </div>

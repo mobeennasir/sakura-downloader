@@ -57,6 +57,41 @@ describe('pages', () => {
     expect(res.status).toBe(500);
     expect(res.text).toContain('Something broke on our side.');
   });
+
+  it('GET /error carries a WhatsApp report link with the failed URL prefilled', async () => {
+    const res = await request(app).get(
+      '/error?code=forbidden&url=' + encodeURIComponent('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+    );
+    expect(res.status).toBe(403);
+    expect(res.text).toContain('Report on WhatsApp');
+    // wa.me link to the owner's number; the message carries the error + link.
+    expect(res.text).toContain('https://wa.me/923136701631?text=');
+    expect(res.text).toContain(encodeURIComponent('https://www.youtube.com/watch?v=dQw4w9WgXcQ'));
+    expect(res.text).toContain('forbidden');
+  });
+
+  it('GET /error drops a non-URL ?url= from the report link', async () => {
+    const res = await request(app).get(
+      '/error?code=timeout&url=' + encodeURIComponent('javascript:alert(1)')
+    );
+    expect(res.status).toBe(504);
+    expect(res.text).toContain('https://wa.me/923136701631?text=');
+    expect(res.text).not.toContain('javascript');
+    expect(res.text).toContain(encodeURIComponent('not given'));
+  });
+
+  it('header has the hamburger toggle for small screens', async () => {
+    const res = await request(app).get('/');
+    expect(res.text).toContain('nav-toggle');
+    expect(res.text).toContain('id="siteNav"');
+    expect(res.text).toContain('aria-controls="siteNav"');
+  });
+
+  it('GET /favicon.ico serves the favicon instead of a 404', async () => {
+    const res = await request(app).get('/favicon.ico');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/svg/);
+  });
 });
 
 describe('static assets', () => {
