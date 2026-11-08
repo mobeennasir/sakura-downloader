@@ -26,7 +26,7 @@ const {
   directPayload,
   needsBuffer,
 } = require('./src/download-links');
-const { resolveMedia, resolveForBatch, getYouTubeInfo } = require('./src/media');
+const { resolveMedia, resolveForBatch, getYouTubeInfo, safeFilename, extractMediaId, captionNameBase } = require('./src/media');
 const ytdlp = require('./src/yt-dlp');
 const { FORMAT_ID_RE } = ytdlp;
 const { cachedResolve, cacheStats, queue } = require('./src/cache');
@@ -147,18 +147,17 @@ const PLATFORMS = {
 const PLATFORM_KEYS = Object.keys(PLATFORMS);
 
 // --- helpers ---------------------------------------------------------------
-function safeFilename(title, ext) {
-  const base = String(title || 'snatcher')
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '_')
-    .slice(0, 80);
-  return `${base || 'snatcher'}.${ext || 'mp4'}`;
-}
-
-function withDownloadLinks(platform, title, items) {
+function withDownloadLinks(platform, title, items, sourceUrl, caption) {
+  const id = sourceUrl ? extractMediaId(sourceUrl) : null;
+  // Name base: the caption's first words when the post has one, else the
+  // title, else the platform. The [id] suffix is what keeps every file
+  // distinct — same words, different post, different name.
+  const base = captionNameBase(caption) || title || platform;
   return items.map((item, i) => {
-    const filename = safeFilename(`${title || platform}_${i + 1}`, item.ext);
+    const filename = safeFilename(base, item.ext, {
+      id,
+      tag: items.length > 1 ? String(i + 1) : undefined,
+    });
     let downloadUrl;
     if (item.ytdlp && item.ytdlp.url && item.ytdlp.formatId) {
       // HLS / segmented media: the proxy converts it to a real file.
@@ -262,7 +261,10 @@ app.post('/api/youtube/convert', async (req, res) => {
     const info = await getYouTubeInfo(cleanUrl);
     const format = info.formats.find((f) => f.id === formatId);
     if (!format) throw Errors.invalidUrl('That format is not available for this video.');
-    const filename = safeFilename(info.title, format.ext);
+    const filename = safeFilename(captionNameBase(info.caption) || info.title, format.ext, {
+      id: extractMediaId(cleanUrl),
+      tag: format.quality,
+    });
     // Merged video+audio buffers to disk first (output size unknowable
     // until merged); a single audio file streams live with its exact size.
     const buffer = format.id.includes('+');
@@ -319,7 +321,7 @@ app.post('/:platform/download', async (req, res) => {
       title: result.title,
       thumbnail: result.thumbnail,
       caption: result.caption || null,
-      mediaItems: withDownloadLinks(platform, result.title, items),
+      mediaItems: withDownloadLinks(platform, result.title, items, url, result.caption),
     });
   } catch (err) {
     sendApiError(res, err);
@@ -351,7 +353,7 @@ app.post('/api/batch', async (req, res) => {
             title: result.title,
             thumbnail: result.thumbnail,
             caption: result.caption || null,
-            mediaItems: withDownloadLinks(result.platform, result.title, result.items),
+            mediaItems: withDownloadLinks(result.platform, result.title, result.items, rawUrl, result.caption),
           };
         } catch (err) {
           const e = toSnatcherError(err);

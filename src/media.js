@@ -12,6 +12,7 @@
 // one item. The Pinterest photo/video toggle in the UI is just a filter over
 // these items.
 
+const crypto = require('node:crypto');
 const { igdl, ttdl, fbdown, twitter, pinterest } = require('btch-downloader');
 const config = require('./config');
 const logger = require('./logger');
@@ -83,6 +84,89 @@ function pickCaption(...candidates) {
     }
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Download filenames. Every file must get a name that is unique to the
+// media it came from, or the browser sees the same name twice and asks
+// "download again?" — the old scheme was just the title (and Instagram has
+// no title at all, so every reel became "Instagram_media_1.mp4").
+// Name shape: Title [id] tag.ext — the id comes from the source URL
+// (video id, shortcode, tweet id, pin id; a short URL hash when the
+// platform hides its ids), the tag is the quality for YouTube or the item
+// number for multi-item posts. The id/tag are never truncated away: the
+// title is cut to make room for them.
+const FILENAME_MAX = 80;
+
+function extractMediaId(rawUrl) {
+  let parsed = null;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    parsed = null;
+  }
+  const host = (parsed?.hostname || '').replace(/^www\./, '').replace(/^m\./, '');
+  const path = parsed?.pathname || '';
+  const params = parsed?.searchParams;
+  let id = null;
+  if (host === 'youtu.be') {
+    id = path.split('/').filter(Boolean)[0] || null;
+  } else if (host.endsWith('youtube.com') || host === 'youtube.com') {
+    id =
+      params?.get('v') ||
+      path.match(/^\/(?:shorts|embed|live|v)\/([^/?#]+)/)?.[1] ||
+      null;
+  } else if (host === 'instagram.com') {
+    id = path.match(/^\/(?:reel|reels|p|tv)\/([^/?#]+)/)?.[1] || null;
+  } else if (host === 'tiktok.com') {
+    id = path.match(/\/video\/(\d+)/)?.[1] || null;
+  } else if (host === 'x.com' || host === 'twitter.com') {
+    id = path.match(/\/status\/(\d+)/)?.[1] || null;
+  } else if (host.endsWith('pinterest.com')) {
+    id = path.match(/\/pin\/(\d+)/)?.[1] || null;
+  } else if (host === 'facebook.com' || host === 'fb.watch') {
+    id =
+      params?.get('v') ||
+      params?.get('story_fbid') ||
+      path.match(/^\/(?:videos|reel|watch)\/(\d+)/)?.[1] ||
+      null;
+  }
+  if (id) return String(id).slice(0, 32);
+  // No id in the URL (e.g. a Facebook share link): a short deterministic
+  // hash of the URL still makes every distinct link a distinct filename.
+  return crypto.createHash('sha1').update(String(rawUrl || '')).digest('hex').slice(0, 8);
+}
+
+// The name base for a download: the first words of the caption, when the
+// media has one. Six words is enough to recognise the file and short
+// enough to stay a filename. Returns null when there is no usable caption
+// — the caller falls back to the title, then the platform name. Sanitising
+// happens in safeFilename, so leading emojis / hashtags / mentions simply
+// drop out ("#summer vibes" -> "summer_vibes").
+const CAPTION_NAME_WORDS = 6;
+function captionNameBase(caption) {
+  if (typeof caption !== 'string' || !caption.trim()) return null;
+  const words = caption.trim().split(/\s+/).slice(0, CAPTION_NAME_WORDS).join(' ');
+  return words || null;
+}
+
+function safeFilename(title, ext, opts = {}) {
+  const useExt = /^[a-z0-9]{2,5}$/i.test(ext || '') ? ext.toLowerCase() : 'mp4';
+  // The /dl proxy re-sanitises a name that already carries its extension —
+  // strip it first, or "Title.mp4" becomes the mangled "Titlemp4.mp4".
+  let base = String(title || 'snatcher').replace(new RegExp(`\\.${useExt}$`, 'i'), '');
+  base = base
+    .replace(/[^\w\s\[\]-]/g, '')
+    .trim()
+    .replace(/\s+/g, '_');
+  const suffixParts = [];
+  if (opts.id) suffixParts.push(`[${String(opts.id).replace(/[^\w-]/g, '')}]`);
+  if (opts.tag) suffixParts.push(String(opts.tag).replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_'));
+  const suffix = suffixParts.filter(Boolean).join(' ');
+  const room = Math.max(0, FILENAME_MAX - (suffix ? suffix.length + 1 : 0));
+  let head = base.slice(0, room).replace(/[_-]+$/, '');
+  if (!head) head = 'snatcher';
+  return `${head}${suffix ? ` ${suffix}` : ''}.${useExt}`;
 }
 
 function withTimeout(promise, ms, label) {
@@ -588,5 +672,8 @@ module.exports = {
   normalizeItem,
   dedupeByUrl,
   pickCaption,
+  captionNameBase,
+  safeFilename,
+  extractMediaId,
   RESOLVERS,
 };
