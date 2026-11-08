@@ -11,7 +11,7 @@ COPY public ./public
 # Snatcher — runtime stage: app + ffmpeg + yt-dlp, non-root
 FROM node:22-alpine AS runtime
 WORKDIR /app
-RUN apk add --no-cache ffmpeg curl \
+RUN apk add --no-cache ffmpeg curl python3 \
   && curl -L https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.26/yt-dlp -o /usr/local/bin/yt-dlp \
   && chmod +x /usr/local/bin/yt-dlp \
   && yt-dlp --version
