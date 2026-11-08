@@ -57,6 +57,25 @@ describe('ytdlpInfoToItems audio selection', () => {
     expect(items[0].ytdlp.formatId).toBe('dash-v+dash-a');
   });
 
+  it('merges Pinterest HLS video with its audio rendition, whose codec is undeclared', () => {
+    // Real Pinterest formats: the audio rendition reports acodec null
+    // (not "mp4a", not "none") while video renditions report acodec
+    // "none". The old hasAudio saw no audio at all and the pin
+    // downloaded silent.
+    const items = ytdlpInfoToItems(
+      info([
+        { format_id: 'V_HLSV3_MOBILE-audio-1', ext: 'mp4', protocol: 'm3u8_native', vcodec: 'none', acodec: null, url: 'https://cdn.example/audio.m3u8' },
+        { format_id: 'V_HLSV3_MOBILE-211', ext: 'mp4', protocol: 'm3u8_native', vcodec: 'avc1.64080C', acodec: 'none', height: 144, url: 'https://cdn.example/v144.m3u8' },
+        { format_id: 'V_HLSV3_MOBILE-489', ext: 'mp4', protocol: 'm3u8_native', vcodec: 'avc1.64081E', acodec: 'none', height: 414, url: 'https://cdn.example/v414.m3u8' },
+      ]),
+      'Test pin',
+      'https://www.pinterest.com/pin/TEST/'
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].ytdlp).toBeDefined();
+    expect(items[0].ytdlp.formatId).toBe('V_HLSV3_MOBILE-489+V_HLSV3_MOBILE-audio-1');
+  });
+
   it('falls back to the silent file only when no audio stream exists', () => {
     const items = ytdlpInfoToItems(
       info([

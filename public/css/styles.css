@@ -21,6 +21,16 @@
   --color-board-type: oklch(96.5% 0.006 70);
   --color-paid: oklch(55.5% 0.15 33);
   --color-danger: oklch(52% 0.16 22);
+  /* Glass: translucent surfaces + backdrop blur, from the open-source
+     glassmorphism recipe (translucent fill, blur, light edge, soft
+     shadow). The blur only frosts what sits behind the element, so glass
+     lives where a backdrop exists: the sticky header (content scrolls
+     beneath), the URL bar (over the hero gradient), the cards, and the
+     full-screen loading overlay (over the whole page). */
+  --glass-bg: oklch(98.8% 0.0045 80 / 0.72);
+  --glass-bg-strong: oklch(97% 0.006 55 / 0.86);
+  --glass-blur: blur(12px) saturate(1.4);
+  --glass-blur-heavy: blur(24px) saturate(1.4);
   --shade: 32% 0.03 50;
   --lit: 100% 0.005 80;
   --deep: 7% 0.01 40;
@@ -159,10 +169,16 @@ video {
   border: 0;
 }
 
-/* Header */
+/* Header: sticky frosted glass — content scrolling beneath is what the
+   blur has to frost, so the header earns the effect instead of wearing it. */
 .site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   border-bottom: var(--rule-hair) solid var(--color-rule);
-  background: var(--color-paper);
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
 }
 
 .site-header .container {
@@ -347,7 +363,9 @@ video {
   gap: 0;
   margin-top: var(--space-lg);
   max-width: 720px;
-  background: var(--color-cotton);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-radius: var(--radius-stock);
   box-shadow: var(--edge-stock), var(--cast-stock);
 }
@@ -552,7 +570,9 @@ video {
 
 .platform-card {
   display: block;
-  background: var(--color-cotton);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-radius: var(--radius-card);
   box-shadow: var(--edge-stock), var(--cast-stock);
   padding: var(--space-lg);
@@ -643,7 +663,9 @@ video {
 
 .howto {
   margin-top: var(--space-xl);
-  background: var(--color-cotton);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-radius: var(--radius-card);
   box-shadow: var(--edge-stock), var(--cast-stock);
   padding: var(--space-lg);
@@ -694,7 +716,9 @@ video {
 }
 
 .media-card {
-  background: var(--color-cotton);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-radius: var(--radius-card);
   box-shadow: var(--edge-stock), var(--cast-stock);
   display: flex;
@@ -794,7 +818,9 @@ video {
 
 /* Caption box: the post's caption on a cotton card, below the downloads. */
 .caption-box {
-  background: var(--color-cotton);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-radius: var(--radius-card);
   box-shadow: var(--edge-stock), var(--cast-stock);
   padding: var(--space-lg);
@@ -1008,6 +1034,107 @@ video {
   flex-wrap: wrap;
 }
 
+/* Loading screen: full-screen frosted glass with the galaxy — the error
+   page's planet and stars — inside an orbit ring. One authored moment:
+   it explains the wait while a resolve or convert runs, instead of a
+   single line of text with a timer. The orbit is the open-source
+   Reddit-style orbital spinner pattern (a ring rotating with a satellite
+   on it, transform-only, so it stays on the compositor); the planet is
+   Snatcher's own. Entrance 300 ms, exit faster; the overlay fades with
+   opacity/visibility so a failed script never leaves it stuck on screen. */
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  background: oklch(97% 0.006 55 / 0.78);
+  backdrop-filter: var(--glass-blur-heavy);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 300ms var(--ease-out), visibility 300ms var(--ease-out);
+}
+
+.loading-screen.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.loading-galaxy {
+  position: relative;
+  width: 148px;
+  height: 148px;
+  color: var(--color-accent-2);
+}
+
+.loading-galaxy .error-animation {
+  margin: 0;
+  width: 148px;
+  height: 148px;
+}
+
+.loading-orbit {
+  position: absolute;
+  inset: -16px;
+  border: 1px dashed var(--color-rule-2);
+  border-radius: 50%;
+  animation: orbit-spin 3s linear infinite;
+}
+
+.loading-satellite {
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border-radius: 50%;
+  background: var(--color-accent-2);
+  box-shadow: 0 0 0 3px oklch(54% 0.165 29 / 0.25);
+}
+
+@keyframes orbit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-text {
+  font-weight: 500;
+  font-size: 1.125rem;
+  color: var(--color-ink);
+}
+
+.loading-elapsed {
+  color: var(--color-muted);
+  font-family: var(--font-outlier);
+  font-size: 0.875rem;
+}
+
+/* No backdrop-filter, no glass: the same surfaces fall back to their
+   solid colours, and the loading screen to plain paper. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .site-header {
+    background: var(--color-paper);
+  }
+
+  .platform-card,
+  .media-card,
+  .howto,
+  .caption-box,
+  .url-bar {
+    background: var(--color-cotton);
+  }
+
+  .loading-screen {
+    background: var(--color-paper);
+  }
+}
+
 /* Error animations: transform and opacity only. */
 .anim-space .star {
   animation: twinkle 2.4s ease-in-out infinite;
@@ -1177,8 +1304,12 @@ video {
     flex-direction: column;
     align-items: flex-start;
     gap: 0;
-    padding-top: var(--space-sm);
-    border-top: var(--rule-hair) solid var(--color-rule);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-card);
+    background: var(--glass-bg-strong);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--edge-stock), var(--cast-stock);
   }
 
   .site-header.nav-open .site-nav a {

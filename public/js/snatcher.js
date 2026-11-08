@@ -97,13 +97,37 @@
     return new Date(ts).toLocaleDateString();
   }
 
-  // --- status line ---------------------------------------------------------
+  // --- status line + loading screen -----------------------------------------
+  // The status line carries the text (and the spinner) for screen readers;
+  // the loading screen is the visual: the galaxy over frosted glass. Both
+  // are driven by the same calls, so they never disagree.
   const statusLine = $('#statusLine');
+  const loadingScreen = $('#loadingScreen');
+  const loadingText = $('#loadingText');
+  const loadingElapsed = $('#loadingElapsed');
   let statusTimer = null;
   let currentAbort = null;
 
+  function showLoading(label) {
+    if (loadingScreen) {
+      loadingScreen.classList.add('is-visible');
+      loadingScreen.setAttribute('aria-hidden', 'false');
+    }
+    if (loadingText) loadingText.textContent = label;
+    if (loadingElapsed) loadingElapsed.textContent = '';
+  }
+
+  function hideLoading() {
+    if (loadingScreen) {
+      loadingScreen.classList.remove('is-visible');
+      loadingScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (loadingElapsed) loadingElapsed.textContent = '';
+  }
+
   function setStatus(text, { alert = false, spinner = false } = {}) {
     if (!statusLine) return;
+    hideLoading();
     clearInterval(statusTimer);
     statusTimer = null;
     statusLine.textContent = '';
@@ -119,14 +143,17 @@
   function setLoading(label) {
     const started = Date.now();
     setStatus(`${label} `, { spinner: true });
+    showLoading(label);
     statusTimer = setInterval(() => {
       const secs = Math.floor((Date.now() - started) / 1000);
       const base = statusLine.textContent.replace(/ · \d+s$/, '');
       statusLine.textContent = `${base} · ${secs}s`;
+      if (loadingElapsed) loadingElapsed.textContent = `${secs}s`;
     }, 1000);
   }
 
   function clearStatus() {
+    hideLoading();
     clearInterval(statusTimer);
     statusTimer = null;
     if (statusLine) statusLine.textContent = '';

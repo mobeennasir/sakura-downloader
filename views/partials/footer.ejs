@@ -8,6 +8,30 @@
     <p class="fine">Snatcher · only download media you have the right to keep.</p>
   </div>
 </footer>
+<!-- Loading screen: the galaxy (planet + stars, same as the error page's
+  space animation) inside an orbit ring, over frosted glass. Shown by
+  snatcher.js while a resolve or convert is running; hidden otherwise.
+  It starts invisible (opacity/visibility, not display) so a failed
+  script never leaves it stuck on screen, and aria-hidden so a hidden
+  overlay is never announced. -->
+<div class="loading-screen" id="loadingScreen" aria-hidden="true">
+  <div class="loading-galaxy" aria-hidden="true">
+    <div class="loading-orbit"><span class="loading-satellite"></span></div>
+    <div class="error-animation anim-space">
+      <svg viewBox="0 0 148 148" fill="none" stroke="currentColor" stroke-width="2">
+        <circle class="star" cx="22" cy="30" r="2.5" fill="currentColor" stroke="none" />
+        <circle class="star" cx="122" cy="24" r="2" fill="currentColor" stroke="none" />
+        <circle class="star" cx="104" cy="122" r="2.5" fill="currentColor" stroke="none" />
+        <g class="planet">
+          <circle cx="74" cy="74" r="32" />
+          <ellipse cx="74" cy="74" rx="50" ry="13" transform="rotate(-20 74 74)" />
+        </g>
+      </svg>
+    </div>
+  </div>
+  <p class="loading-text" id="loadingText">Snatching…</p>
+  <p class="loading-elapsed" id="loadingElapsed"></p>
+</div>
 <script src="/js/snatcher.js" defer></script>
 </body>
 </html>

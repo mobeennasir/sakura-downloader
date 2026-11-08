@@ -294,7 +294,19 @@ function downloadToFile(url, formatId, client, destPath) {
   return new Promise((resolve, reject) => {
     const format = formatId || 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b';
     const useClient = YTDLP_CLIENTS.includes(client) ? client : YTDLP_CLIENTS[0];
-    const child = spawn(config.ytdlpPath, ['-f', format, '-o', destPath, ...baseArgs(useClient), url], {
+    // HLS/DASH fragments download five at a time instead of one after
+    // another: Pinterest's audio rendition has 70+ fragments, and fetching
+    // them sequentially took over five minutes for one short pin (the video
+    // part finished in a minute, the audio part was still on fragment 72).
+    // Progressive files have no fragments, so the flag is a no-op for them.
+    // HLS itself goes through ffmpeg, not yt-dlp's native downloader:
+    // ffmpeg's HLS client is roughly twice as fast here (1m56s vs ~4min
+    // for the same merged pin), and ffmpeg is already a hard dependency
+    // for merges. Direct range GETs prove the CDN is fast per request —
+    // the throttle is per-stream (~78 KiB/s from this VM), so the
+    // download of a ~2m46s pin still takes ~2 minutes; that is the
+    // platform's speed, not the app stalling.
+    const child = spawn(config.ytdlpPath, ['-f', format, '-o', destPath, ...baseArgs(useClient), '--concurrent-fragments', '5', '--hls-prefer-ffmpeg', url], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stderr = '';

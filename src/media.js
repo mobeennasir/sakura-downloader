@@ -242,6 +242,14 @@ async function resolveInstagram(url) {
 // Pinterest — yt-dlp primary (Pinterest extractor: pins, images + video, high
 // quality), btch fallback. The old RapidAPI path is gone with the leaked key.
 // ---------------------------------------------------------------------------
+async function fetchPinterestViaBtch(url, timeoutMs) {
+  const data = await withTimeout(pinterest(url), timeoutMs, 'Pinterest');
+  let pin = data && data.result ? data.result : null;
+  if (pin && pin.result) pin = pin.result;
+  if (!pin || (!pin.video_url && !pin.image)) throw Errors.noMedia();
+  return pin;
+}
+
 async function resolvePinterest(url) {
   try {
     const info = await ytdlp.getInfo(url);
@@ -267,14 +275,18 @@ async function resolvePinterest(url) {
     logger.warn({ err: err.message }, 'yt-dlp Pinterest failed, trying btch');
   }
 
-  const data = await withTimeout(
-    pinterest(url),
-    config.upstreamTimeoutMs,
-    'Pinterest'
-  );
-  let pin = data && data.result ? data.result : null;
-  if (pin && pin.result) pin = pin.result;
-  if (!pin || (!pin.video_url && !pin.image)) throw Errors.noMedia();
+  // Pinterest's scraper flakes: it sometimes returns nothing for a pin it
+  // serves fine a minute later (seen live 2026-11-08 — first attempt
+  // no_media, an immediate retry returned the image). One retry, only when
+  // the first attempt failed fast: a timeout is not retried, the frontend's
+  // 60 s budget would not survive a second full wait.
+  let pin;
+  try {
+    pin = await fetchPinterestViaBtch(url, config.upstreamTimeoutMs);
+  } catch (err) {
+    if (err && err.code === 'timeout') throw err;
+    pin = await fetchPinterestViaBtch(url, 15000);
+  }
   const items = [
     normalizeItem(
       {
@@ -456,7 +468,15 @@ function ytdlpInfoToItems(info, fallbackTitle, sourceUrl) {
     //    codecs for progressive files — those are combined files);
     // 3. the best video-only format merged with the best audio-only
     //    format (the proxy merges them with ffmpeg, buffered to disk).
-    const hasAudio = (f) => Boolean(f.acodec && f.acodec !== 'none');
+    // An audio stream counts even when its codec is undeclared:
+    // Pinterest's HLS audio rendition reports acodec null while its
+    // video renditions report acodec 'none'. A format that is explicitly
+    // video-less (vcodec 'none') and not explicitly audio-less
+    // (acodec !== 'none') is audio with an unknown codec — without this
+    // the picker sees no audio at all and hands back a silent video.
+    const hasAudio = (f) =>
+      Boolean(f.acodec && f.acodec !== 'none') ||
+      (f.vcodec === 'none' && f.acodec !== 'none' && Boolean(f.url));
     const hasVideo = (f) => Boolean(f.vcodec && f.vcodec !== 'none');
     const byHeight = (a, b) =>
       (b.height || 0) - (a.height || 0) || (b.filesize || 0) - (a.filesize || 0);

@@ -92,6 +92,30 @@ describe('pages', () => {
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/svg/);
   });
+
+  it('home page carries the galaxy loading screen (hidden until a resolve runs)', async () => {
+    const res = await request(app).get('/');
+    expect(res.text).toContain('id="loadingScreen"');
+    expect(res.text).toContain('loading-orbit');
+    expect(res.text).toContain('id="loadingText"');
+  });
+
+  it('platform icons are the official brand glyphs on glassy tiles, not hand-drawn shapes', async () => {
+    const res = await request(app).get('/');
+    expect(res.text).toContain('tile-shine');
+    expect(res.text).toContain('#i-youtube');
+    expect(res.text).toContain('#i-instagram');
+    expect(res.text).toContain('#i-tiktok');
+  });
+
+  it('stylesheet has the glassmorphism treatment and the loading screen', async () => {
+    const res = await request(app).get('/css/styles.css');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('backdrop-filter');
+    expect(res.text).toContain('.loading-screen');
+    expect(res.text).toContain('orbit-spin');
+    expect(res.text).toContain('@supports not');
+  });
 });
 
 describe('static assets', () => {
