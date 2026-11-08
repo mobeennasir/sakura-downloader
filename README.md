@@ -1,19 +1,31 @@
+<div align="center">
+
 # Snatcher
 
-Paste a link, keep the file. A media downloader for six platforms — YouTube,
-Instagram, Facebook, TikTok, Twitter/X and Pinterest — with one URL bar, real
-downloads (not new tabs), and batch mode.
+**Paste a link, keep the file.**
 
-Snatcher is a full rebuild of the old Sakura Downloader (v3.0.0): new name,
-new Midnight theme, new backend, new frontend, real downloads, and a test
-suite. Everything below describes the rebuilt app.
+A media downloader for six platforms — YouTube, Instagram, Facebook, TikTok,
+Twitter/X and Pinterest — with one URL bar, real downloads, and batch mode.
 
-## What it does
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D_22-BB3D31?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![Platforms](https://img.shields.io/badge/platforms-6-BB3D31?style=flat-square)](https://github.com/mobeennasir/sakura-downloader)
+[![Tests](https://img.shields.io/badge/tests-vitest_%2B_supertest-2F2A26?style=flat-square)](https://github.com/mobeennasir/sakura-downloader)
+[![Deploy](https://img.shields.io/badge/deploy-Koyeb-2F2A26?style=flat-square)](https://www.koyeb.com)
+[![License](https://img.shields.io/badge/license-ISC-2F2A26?style=flat-square)](https://github.com/mobeennasir/sakura-downloader)
 
-- **YouTube** — the video's thumbnail, title and author up top, then two
-  sections: **Video** (2160p down to 144p, one row per quality) and **Audio**
-  (the best few audio formats by bitrate). Every format has its own
-  Download button — click it and that exact file downloads.
+</div>
+
+Snatcher is a full rebuild of the old Sakura Downloader (v3.0.0): new name, new
+Coral theme, new backend, new frontend, real downloads, and a test suite.
+
+---
+
+## What you get
+
+- **YouTube, properly** — the video's thumbnail, title and author up top, then
+  two sections: **Video** (up to 2160p, one row per quality) and **Audio**
+  (the best few formats by bitrate). Every format has its own Download
+  button — click it and that exact file downloads.
 - **Instagram** — reels and posts. A reel gives you its video; a post or
   carousel gives you every photo and video inside it, each with its own
   download button.
@@ -27,20 +39,34 @@ suite. Everything below describes the rebuilt app.
   Instagram captions are not carried by its resolver, so none shows there.
 - **Real downloads, with the real size** — files stream through a signed
   same-origin proxy (`/dl`), so the Download button actually downloads, and
-  the browser shows the exact final size and progress from the start.
-  Merged videos and HLS streams are buffered to disk first so their size is
-  known too; the button says "Getting your file ready" while that happens.
+  the browser shows the exact final size and progress from the start. Merged
+  videos and HLS streams are buffered to disk first so their size is known
+  too; the button says "Getting your file ready" while that happens.
+- **Sensible filenames** — the caption's first words become the file name
+  when a caption exists, so downloads never collide and never ask to
+  "download again" — unless it really is the same file twice.
 - **Logs** — development logs are colourised and multi-line; production logs
   are single-line and colourless, so a log viewer shows one event per line.
 - **Error pages** — a different animated page per failure: "Lost in space."
   (404), "That link went nowhere.", "That one is locked.", "Too fast. Slow
   down.", "Took too long.", "Something broke on our side."
 
+## Platforms
+
+| Platform | What you get |
+| --- | --- |
+| YouTube | Video up to 2160p + audio, per-format downloads |
+| Instagram | Reels, posts and carousels — every item inside |
+| Pinterest | Pins, photos and videos in high quality |
+| TikTok | The video |
+| Facebook | The video |
+| Twitter/X | The video, plus the tweet text as its caption |
+
 ## Theme — Coral
 
-Light, warm grey paper, ink-board buttons, one deep-coral signal, 8px
-rounded cards with a letterpress edge, General Sans + Geist Mono figures.
-The dark Midnight theme was replaced because it read badly on real screens.
+Light, warm grey paper, ink-board buttons, one deep-coral signal, 8px rounded
+cards with a letterpress edge, General Sans + Geist Mono figures. The dark
+Midnight theme was replaced because it read badly on real screens.
 
 ## Quick start
 
@@ -58,14 +84,14 @@ npm test               # vitest + supertest suite (73 tests)
 
 ## How it works
 
-```
-paste a link
-  → validate (host allowlist + SSRF check: no private IPs, no lookalikes)
-  → resolve (cache + queue + one in-flight call per URL)
-  → per-platform adapter (yt-dlp primary for YouTube/Pinterest/TikTok,
-    btch-downloader for the rest, each with a fallback)
-  → typed media items [{ type: 'video' | 'image', url, thumbnail, ... }]
-  → signed /dl link per item → the file streams to the user
+```mermaid
+flowchart LR
+    A[Paste a link] --> B[Validate<br/>host allowlist + SSRF check]
+    B --> C[Resolve<br/>cache + queue]
+    C --> D[Per-platform adapter<br/>yt-dlp / btch-downloader]
+    D --> E[Typed media items]
+    E --> F[Signed /dl link]
+    F --> G[The file streams to you]
 ```
 
 YouTube uses yt-dlp's `tv_embedded` player client (full format range) with
@@ -73,12 +99,11 @@ YouTube uses yt-dlp's `tv_embedded` player client (full format range) with
 webpage fetch (`player_skip=webpage`) where the bot check usually triggers —
 datacentre IPs get bot-checked, so the retry chain matters. If YouTube still
 asks the server to sign in, set `YTDLP_COOKIES` (a Koyeb secret) to the
-contents of a Netscape cookies.txt
-exported for youtube.com only, or `YTDLP_COOKIES_FILE` to a cookies.txt path
-for local runs. The cookies are only ever handed to yt-dlp, never logged, and
-`/health/ready` reports whether any are configured. Pinterest videos arrive as
-HLS playlists, so the proxy converts them to mp4 with ffmpeg instead of
-handing over a playlist file.
+contents of a Netscape cookies.txt exported for youtube.com only, or
+`YTDLP_COOKIES_FILE` to a cookies.txt path for local runs. The cookies are
+only ever handed to yt-dlp, never logged, and `/health/ready` reports whether
+any are configured. Pinterest videos arrive as HLS playlists, so the proxy
+converts them to mp4 with ffmpeg instead of handing over a playlist file.
 TikTok is resolved by yt-dlp directly, with btch-downloader as fallback —
 there is no third-party API in the middle.
 
@@ -93,13 +118,38 @@ Node.js 22 · Express 5 · EJS · yt-dlp · btch-downloader 6.4 · helmet ·
 express-rate-limit · pino + pino-pretty · lru-cache · p-queue · vitest +
 supertest.
 
-## Configuration
+<details>
+<summary><strong>Configuration</strong></summary>
 
-See `.env.example`. The important ones: `PORT` (default 3000), `YTDLP_PATH`
-(default `yt-dlp`), `DOWNLOAD_SECRET` (signs `/dl` URLs; random per boot if
-unset), `LOG_PRETTY` (1 = colourised pino-pretty logs, 0 = raw JSON).
+See `.env.example`. The important ones:
 
-## Project structure
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `PORT` | `3000` | Port the server listens on |
+| `YTDLP_PATH` | `yt-dlp` | Path to the yt-dlp binary |
+| `DOWNLOAD_SECRET` | random per boot | Signs `/dl` URLs |
+| `LOG_PRETTY` | pretty | `1` = colourised pino-pretty logs, `0` = raw JSON |
+| `YTDLP_COOKIES` | — | Contents of a Netscape cookies.txt (Koyeb secret) |
+| `YTDLP_COOKIES_FILE` | — | Path to a cookies.txt file (local runs) |
+| `YTDLP_DOWNLOAD_TIMEOUT_MS` | `600000` | Timeout for a single download (10 min) |
+
+</details>
+
+## Deploy
+
+Docker image (multi-stage, `node:22-alpine`, non-root, ffmpeg + yt-dlp
+installed, healthcheck on `/health`):
+
+```bash
+docker build -t snatcher .
+docker run -p 3000:3000 snatcher
+```
+
+On Koyeb, deploy from the public repo URL. Koyeb does not auto-deploy public
+repos — after pushing, trigger the build manually in the Koyeb dashboard.
+
+<details>
+<summary><strong>Project structure</strong></summary>
 
 ```
 server.js            Express app: routes, rate limit, helmet, signed /dl proxy
@@ -126,18 +176,7 @@ views/
 tests/               vitest + supertest (run with `npm test`)
 ```
 
-## Deploy
-
-Docker image (multi-stage, `node:22-alpine`, non-root, ffmpeg + yt-dlp
-installed, healthcheck on `/health`):
-
-```bash
-docker build -t snatcher .
-docker run -p 3000:3000 snatcher
-```
-
-On Koyeb, deploy from the public repo URL. Koyeb does not auto-deploy public
-repos — after pushing, trigger the build manually in the Koyeb dashboard.
+</details>
 
 ## Honest limits
 
