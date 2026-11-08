@@ -55,7 +55,12 @@ app.use(
 app.use(compression());
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
+// Static assets revalidate on every load (max-age 0, ETag handles the 304).
+// A long cache here once stuck the old Midnight stylesheet in browsers for a
+// full day after the Coral redeploy — the browser never even asked the server
+// for the new CSS, so no rebuild could fix it. Revalidation costs nothing
+// (304 when unchanged) and a changed file is picked up immediately.
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0 }));
 
 // Request log: method + pathname + status + ms only. Never the query string
 // or body — those can carry a pasted (possibly private) post URL.

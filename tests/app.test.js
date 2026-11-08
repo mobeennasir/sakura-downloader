@@ -59,6 +59,17 @@ describe('pages', () => {
   });
 });
 
+describe('static assets', () => {
+  it('stylesheet is served with max-age 0 so theme changes reach browsers', async () => {
+    const res = await request(app).get('/css/styles.css');
+    expect(res.status).toBe(200);
+    // A long cache once left the old theme stuck in browsers for a day after
+    // a redeploy. max-age 0 + ETag means revalidation every load, 304 when
+    // unchanged, and the new file the moment it changes.
+    expect(res.headers['cache-control']).toMatch(/max-age=0/);
+  });
+});
+
 describe('YouTube API', () => {
   it('POST /api/youtube/info without a url is a 400', async () => {
     const res = await request(app).post('/api/youtube/info').send({});
