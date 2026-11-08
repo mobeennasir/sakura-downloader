@@ -13,7 +13,7 @@
     "pino": "^10.4.0",
     "pino-pretty": "^13.2.0"
   },
-  "description": "Snatcher — paste a link from YouTube, Instagram, Facebook, TikTok, Twitter/X or Pinterest and grab the video or images in one click.",
+  "description": "Snatcher — paste a link from Instagram, Facebook, TikTok, Twitter/X or Pinterest and grab the video or images in one click.",
   "devDependencies": {
     "supertest": "^7.3.2",
     "vitest": "^5.1.0"
@@ -30,5 +30,5 @@
     "test": "LOG_PRETTY=0 vitest run"
   },
   "type": "commonjs",
-  "version": "3.2.0"
+  "version": "3.3.0"
 }

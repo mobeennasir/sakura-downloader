@@ -119,7 +119,7 @@ function dedupeByUrl(items) {
 
 // Captions: the text attached to the post/video, when the source provides
 // one. First non-empty candidate wins; trimmed and capped so a very long
-// YouTube description cannot blow up the response. Returns null when no
+// description cannot blow up the response. Returns null when no
 // source has caption text — the frontend hides the caption box then.
 // Not every source carries one: igdl (Instagram) returns media URLs only,
 // so Instagram captions appear only when the yt-dlp path ran.
@@ -165,8 +165,7 @@ async function fetchCaption(url) {
 // again?" — the old scheme was just the title, and Instagram has no
 // title at all, so every reel became "Instagram_media_1.mp4".
 // Name shape: First caption words tag.ext, or Title tag.ext when there
-// is no caption. The tag is the quality for YouTube or the item number
-// for multi-item posts. The tag is never truncated away: the title is
+// is no caption. The tag is the item number for multi-item posts. The tag is never truncated away: the title is
 // cut to make room for it. No media id appears in the name.
 
 // A short fingerprint of a URL — looks random, but the same link always
@@ -206,8 +205,7 @@ function safeFilename(title, ext, opts = {}) {
   // again?" — the old scheme was just the title, and Instagram has no
   // title at all, so every reel became "Instagram_media_1.mp4".
   // Name shape: First caption words tag.ext, or Title tag.ext when there
-  // is no caption. The tag is the quality for YouTube or the item number
-  // for multi-item posts. The tag is never truncated away: the title is
+  // is no caption. The tag is the item number for multi-item posts. The tag is never truncated away: the title is
   // cut to make room for it. No media id appears in the name.
   const FILENAME_MAX = 80;
   const suffixParts = [];
@@ -573,9 +571,12 @@ async function resolveTikTok(url) {
         )
       )
       .filter(Boolean);
-    // The ttdl URL is a dld.tiktokio.com proxy link (not a TikTok CDN
-    // link): it answers 200 + video/mp4 to a plain server-side GET, so
-    // the item downloads through the /dl proxy directly — no yt-dlp
+    // The ttdl URL is a dl.tiktokio.com proxy link (not a TikTok CDN
+    // link). It answers 200 + video/mp4 to a plain GET from most IPs,
+    // but the server-side fetch 403s from Koyeb's datacenter IP — so
+    // the download goes browser-direct (withDownloadLinks hands the
+    // raw tiktokio URL to the loader, which fetches it from the user's
+    // own IP; it sends `access-control-allow-origin: *`). No yt-dlp
     // re-run, which is what 502'd on the throttled Koyeb IP.
     if (items.length > 0) {
       return { title: 'TikTok video', thumbnail: data.thumbnail || null, items, caption: pickCaption(data.title) };
@@ -874,7 +875,6 @@ function ytdlpInfoToItems(info, fallbackTitle, sourceUrl, opts = {}) {
           url: pageUrl,
           formatId: format.format_id,
           ext: 'mp4',
-          client: info._client || 'tv_embedded',
         };
       }
       return item;
@@ -898,7 +898,6 @@ function ytdlpInfoToItems(info, fallbackTitle, sourceUrl, opts = {}) {
           url: pageUrl,
           formatId: `${video.format_id}+${audio.format_id}`,
           ext: 'mp4',
-          client: info._client || 'tv_embedded',
         });
         if (item) items.push(item);
       } else if (video) {
@@ -942,83 +941,6 @@ function ytdlpInfoToItems(info, fallbackTitle, sourceUrl, opts = {}) {
   return dedupeByUrl(items.filter(Boolean));
 }
 
-// ---------------------------------------------------------------------------
-// YouTube info (the two-step flow): title, thumbnail, duration and a format
-// picker list. Formats are combined video+audio pairs (video id + audio id),
-// plus a best-audio option.
-// ---------------------------------------------------------------------------
-async function getYouTubeInfo(rawUrl) {
-  const { url } = await validateMediaUrl(rawUrl, 'youtube');
-  return cachedResolve(`youtube:info:${url}`, async () => {
-    const info = await ytdlp.getInfo(url);
-    const formats = Array.isArray(info.formats) ? info.formats : [];
-
-    const videoFormats = formats.filter(
-      (f) => f.vcodec && f.vcodec !== 'none' && f.ext === 'mp4' && f.height
-    );
-    const audioFormats = formats.filter(
-      (f) => f.acodec && f.acodec !== 'none' && (!f.vcodec || f.vcodec === 'none')
-    );
-    const bestAudio = [...audioFormats].sort(
-      (a, b) => (b.abr || 0) - (a.abr || 0)
-    )[0];
-
-    const byHeight = new Map();
-    for (const vf of videoFormats) {
-      const existing = byHeight.get(vf.height);
-      if (!existing || (vf.filesize || 0) > (existing.filesize || 0)) {
-        byHeight.set(vf.height, vf);
-      }
-    }
-
-    const picked = [...byHeight.values()]
-      .sort((a, b) => b.height - a.height)
-      .slice(0, 5)
-      .map((vf) => {
-        const id = bestAudio ? `${vf.format_id}+${bestAudio.format_id}` : `${vf.format_id}`;
-        return {
-          id,
-          type: 'mp4',
-          quality: `${vf.height}p`,
-          ext: 'mp4',
-          size: vf.filesize || vf.filesize_approx || null,
-          label: `${vf.height}p · mp4`,
-        };
-      });
-
-    // Audio on its own: the best few by bitrate, so the Audio section has
-    // real choices (m4a / opus / webm) instead of a single take-it-or-leave-it.
-    const audioPicked = [...audioFormats]
-      .sort((a, b) => (b.abr || 0) - (a.abr || 0))
-      .slice(0, 3)
-      .map((af) => ({
-        id: `${af.format_id}`,
-        type: 'audio',
-        quality: 'Audio only',
-        ext: af.ext || 'm4a',
-        size: af.filesize || af.filesize_approx || null,
-        label: af.abr ? `Audio · ${af.abr} kbps · ${af.ext || 'm4a'}` : `Audio only · ${af.ext || 'm4a'}`,
-      }));
-
-    const pickedFormats = [...picked, ...audioPicked];
-
-    if (pickedFormats.length === 0) throw Errors.noMedia();
-    return {
-      title: info.title || 'YouTube video',
-      thumbnail:
-        info.thumbnail ||
-        (info.id ? `https://img.youtube.com/vi/${info.id}/maxresdefault.jpg` : null),
-      duration: info.duration || null,
-      author: info.uploader || null,
-      client: info._client || 'tv_embedded',
-      caption: pickCaption(info.description),
-      formats: pickedFormats,
-      videoFormats: picked,
-      audioFormats: audioPicked,
-    };
-  });
-}
-
 const RESOLVERS = {
   instagram: resolveInstagram,
   pinterest: resolvePinterest,
@@ -1027,41 +949,11 @@ const RESOLVERS = {
   twitter: resolveTwitter,
 };
 
-// Batch resolution: like resolveMedia, but YouTube links resolve to their
-// single best format instead of the format picker — a batch is about grabbing
-// files, not choosing qualities per link.
+// Batch resolution: like resolveMedia, but returns the platform too, so the
+// batch route can label each link.
 async function resolveForBatch(rawUrl) {
   const platform = detectPlatform(rawUrl);
   if (!platform) throw Errors.invalidUrl('That link is not from a supported platform.');
-  if (platform === 'youtube') {
-    const info = await getYouTubeInfo(rawUrl);
-    const best = info.formats.find((f) => f.type === 'mp4') || info.formats[0];
-    if (!best) throw Errors.noMedia();
-    return {
-      platform,
-      title: info.title,
-      thumbnail: info.thumbnail,
-      caption: info.caption || null,
-      items: [
-        {
-          type: best.type === 'audio' ? 'audio' : 'video',
-          url: null,
-          thumbnail: info.thumbnail,
-          title: info.title,
-          quality: best.quality,
-          ext: best.ext,
-          size: best.size || null,
-          sourceUrl: rawUrl,
-          ytdlp: {
-            url: rawUrl,
-            formatId: best.id,
-            ext: best.ext,
-            client: info.client || 'tv_embedded',
-          },
-        },
-      ],
-    };
-  }
   const result = await resolveMedia(rawUrl, platform);
   return { platform, title: result.title, thumbnail: result.thumbnail, caption: result.caption || null, items: result.items };
 }
@@ -1087,7 +979,6 @@ async function resolveMedia(rawUrl, platform) {
 module.exports = {
   resolveMedia,
   resolveForBatch,
-  getYouTubeInfo,
   ytdlpInfoToItems,
   normalizeItem,
   dedupeByUrl,

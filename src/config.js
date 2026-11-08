@@ -10,11 +10,12 @@ const config = {
   // Path to the yt-dlp binary. Koyeb/Docker installs it at /usr/local/bin/yt-dlp.
   ytdlpPath: process.env.YTDLP_PATH || 'yt-dlp',
 
-  // YouTube login cookies, to pass YouTube's "sign in to confirm you're
-  // not a bot" check on datacenter IPs. YTDLP_COOKIES holds the Netscape
-  // cookies.txt CONTENT (set it in Koyeb as a secret env var — never commit
-  // it, never log it); YTDLP_COOKIES_FILE is a path to a cookies.txt file
-  // instead, for local runs. The cookies are only ever handed to yt-dlp.
+  // Login cookies for yt-dlp (--cookies), used for Instagram + Facebook:
+  // from a datacenter IP, yt-dlp's caption fetches get bot-checked without
+  // a logged-in session. YTDLP_COOKIES holds the Netscape cookies.txt
+  // CONTENT (set it in Koyeb as a secret env var — never commit it, never
+  // log it); YTDLP_COOKIES_FILE is a path to a cookies.txt file instead,
+  // for local runs. The cookies are only ever handed to yt-dlp.
   ytdlpCookies: process.env.YTDLP_COOKIES || null,
   ytdlpCookiesFile: process.env.YTDLP_COOKIES_FILE || null,
 

@@ -5,11 +5,6 @@
   const HOST_PLATFORM = {
     'instagram.com': 'instagram',
     'www.instagram.com': 'instagram',
-    'youtube.com': 'youtube',
-    'www.youtube.com': 'youtube',
-    'youtu.be': 'youtube',
-    'music.youtube.com': 'youtube',
-    'www.music.youtube.com': 'youtube',
     'pinterest.com': 'pinterest',
     'www.pinterest.com': 'pinterest',
     'pin.it': 'pinterest',
@@ -28,7 +23,6 @@
 
   const PLATFORM_NAMES = {
     instagram: 'Instagram',
-    youtube: 'YouTube',
     pinterest: 'Pinterest',
     tiktok: 'TikTok',
     facebook: 'Facebook',
@@ -80,13 +74,6 @@
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
-
-  function fmtDuration(seconds) {
-    if (!seconds) return '';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${String(s).padStart(2, '0')}`;
   }
 
   function timeAgo(ts) {
@@ -414,8 +401,7 @@
     const preview = el('div', { class: 'preview' });
     // HLS manifests (.m3u8) do not play in a plain <video> element — show
     // the thumbnail instead; the Download button still saves a real mp4.
-    // Items without a direct media URL (e.g. YouTube batch items) show the
-    // thumbnail too.
+    // Items without a direct media URL show the thumbnail too.
     if (item.type === 'video' && item.url && !/\.m3u8(\?|$)/i.test(item.url)) {
       const video = el('video', {
         src: item.url,
@@ -426,8 +412,14 @@
       if (item.thumbnail) video.setAttribute('poster', item.thumbnail);
       preview.appendChild(video);
     } else {
+      // A photo's preview IS the photo: the backend hands every item in a
+      // carousel the same post thumbnail, so `thumbnail || url` showed one
+      // photo on all ten cards while the downloads (which use `url`) were
+      // all different files. Use the item's own URL for photos; the
+      // thumbnail stays as the fallback for videos/HLS items that have no
+      // direct URL to show.
       const img = el('img', {
-        src: item.thumbnail || item.url,
+        src: item.type === 'image' ? (item.url || item.thumbnail) : (item.thumbnail || item.url),
         alt: item.title || `Image ${index + 1}`,
         loading: 'lazy',
       });
@@ -647,84 +639,11 @@
     });
   }
 
-  // --- YouTube two-step flow ---------------------------------------------------
-  async function runYouTube(url) {
-    setLoading('Asking YouTube for the video info…');
-    const infoRes = await postJson('/api/youtube/info', { url }, 150000);
-    const info = infoRes.data;
-    clearStatus();
-
-    resultsEl.textContent = '';
-    const summary = el('div', { class: 'video-summary' });
-    if (info.thumbnail) {
-      summary.appendChild(el('img', { src: info.thumbnail, alt: '' }));
-    }
-    const sumBody = el('div');
-    sumBody.appendChild(el('p', { class: 'title', text: info.title }));
-    const meta = [info.author, fmtDuration(info.duration)].filter(Boolean).join(' · ');
-    if (meta) sumBody.appendChild(el('p', { class: 'meta', text: meta }));
-    summary.appendChild(sumBody);
-    resultsEl.appendChild(summary);
-
-    // Video and Audio as separate sections: one row per format, each with
-    // its own Download button. Clicking it downloads exactly that format —
-    // no separate pick-then-convert step.
-    async function downloadFormat(format, button) {
-      button.disabled = true;
-      setLoading('Getting your file ready…');
-      try {
-        const conv = await postJson('/api/youtube/convert', { url, formatId: format.id }, 120000);
-        clearStatus();
-        await startDownload(conv.data.downloadUrl, conv.data.filename || '');
-        saveRecent(url, 'youtube', info.title);
-      } catch (err) {
-        goToErrorPage(err, url);
-      } finally {
-        button.disabled = false;
-      }
-    }
-
-    function formatSection(heading, formats) {
-      if (!formats || formats.length === 0) return;
-      const head = el('div', { class: 'results-head' });
-      head.appendChild(el('h2', { text: heading }));
-      resultsEl.appendChild(head);
-      const list = el('div', { class: 'format-list' });
-      formats.forEach((format) => {
-        const row = el('div', { class: 'format-row' });
-        row.appendChild(el('span', { class: 'format-label', text: format.label }));
-        const size = fmtBytes(format.size);
-        if (size) row.appendChild(el('span', { class: 'format-size', text: size }));
-        const dl = el('button', { class: 'btn btn--primary', type: 'button' }, [icon('download'), document.createTextNode('Download')]);
-        dl.addEventListener('click', () => downloadFormat(format, dl));
-        row.appendChild(dl);
-        list.appendChild(row);
-      });
-      resultsEl.appendChild(list);
-    }
-
-    formatSection('Video', info.videoFormats || info.formats.filter((f) => f.type === 'mp4'));
-    formatSection('Audio', info.audioFormats || info.formats.filter((f) => f.type === 'audio'));
-
-    // The caption sits below the downloads, with its copy button.
-    const caption = captionSection(info.caption);
-    if (caption) resultsEl.appendChild(caption);
-
-  }
-
   // --- single resolve ------------------------------------------------------------
   async function runSingle(url, platform, { mediaType } = {}) {
     const detected = platform || detectPlatform(url);
     if (!detected) {
       goToErrorPage({ code: 'invalid_url' }, url);
-      return;
-    }
-    if (detected === 'youtube') {
-      try {
-        await runYouTube(url);
-      } catch (err) {
-        goToErrorPage(err, url);
-      }
       return;
     }
     setLoading(`Asking ${PLATFORM_NAMES[detected]} for the media…`);

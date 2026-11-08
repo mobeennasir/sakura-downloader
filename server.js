@@ -26,7 +26,7 @@ const {
   directPayload,
   needsBuffer,
 } = require('./src/download-links');
-const { resolveMedia, resolveForBatch, getYouTubeInfo, safeFilename, urlFingerprint, captionNameBase } = require('./src/media');
+const { resolveMedia, resolveForBatch, safeFilename, urlFingerprint, captionNameBase } = require('./src/media');
 const ytdlp = require('./src/yt-dlp');
 const { FORMAT_ID_RE } = ytdlp;
 const { cachedResolve, cacheStats, queue } = require('./src/cache');
@@ -108,14 +108,6 @@ const PLATFORMS = {
     placeholder: 'Paste your Instagram link here...',
     hint: 'Works with reels, single posts and carousel posts.',
   },
-  youtube: {
-    key: 'youtube',
-    name: 'YouTube',
-    title: 'YouTube Downloader',
-    subtitle: 'Pick a video, choose the quality, grab the file.',
-    placeholder: 'Paste your YouTube link here...',
-    hint: 'Videos and Shorts. Pick a format after the info loads.',
-  },
   pinterest: {
     key: 'pinterest',
     name: 'Pinterest',
@@ -184,11 +176,18 @@ function withDownloadLinks(platform, title, items, sourceUrl, caption) {
         url: item.ytdlp.url,
         formatId: item.ytdlp.formatId,
         ext: item.ytdlp.ext || 'mp4',
-        client: item.ytdlp.client,
         filename,
         size: buffer ? null : item.size,
         buffer: buffer || undefined,
       });
+    } else if (platform === 'tiktok' && /^https?:\/\/[^/]*\.tiktokio\.com\//i.test(item.url || '')) {
+      // TikTok's ttdl link is a dl.tiktokio.com proxy URL. The server-side
+      // fetch of it 403s from Koyeb's datacenter IP (measured live), but
+      // the browser — the user's own IP — fetches it fine, and it sends
+      // `access-control-allow-origin: *`, so the loader's fetch can read
+      // it and save it under the nice caption-based name. So TikTok
+      // downloads go browser-direct, not through the /dl proxy.
+      downloadUrl = item.url;
     } else {
       downloadUrl = buildDirectDownloadUrl({ url: item.url, filename, size: item.size || null });
     }
@@ -273,74 +272,12 @@ app.get('/:platform', (req, res, next) => {
   res.render('platform', { platform: cfg, platforms: PLATFORMS });
 });
 
-// --- YouTube: two-step flow (info → format → convert) -----------------------
-app.post('/api/youtube/info', async (req, res) => {
-  try {
-    const { url } = req.body || {};
-    if (!url) return res.status(400).json({ success: false, error: 'URL is required', code: 'invalid_url' });
-    const info = await getYouTubeInfo(url);
-    res.json({ success: true, data: info });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-
-app.post('/api/youtube/convert', async (req, res) => {
-  try {
-    const { url, formatId } = req.body || {};
-    if (!url || !formatId) {
-      return res.status(400).json({ success: false, error: 'URL and format are required', code: 'invalid_url' });
-    }
-    // formatId goes to a spawned process: only yt-dlp format selectors.
-    if (!FORMAT_ID_RE.test(formatId)) {
-      throw Errors.invalidUrl('That format is not valid.');
-    }
-    const { url: cleanUrl } = await validateMediaUrl(url, 'youtube');
-    const info = await getYouTubeInfo(cleanUrl);
-    const format = info.formats.find((f) => f.id === formatId);
-    if (!format) throw Errors.invalidUrl('That format is not available for this video.');
-    const captionBase = captionNameBase(info.caption);
-    const base = captionBase || `${info.title} ${urlFingerprint(cleanUrl)}`;
-    const filename = safeFilename(base, format.ext, {
-      tag: format.quality,
-    });
-    // Merged video+audio buffers to disk first (output size unknowable
-    // until merged); a single audio file streams live with its exact size.
-    const buffer = format.id.includes('+');
-    const downloadUrl = buildYtDlpDownloadUrl({
-      url: cleanUrl,
-      formatId,
-      ext: format.ext,
-      client: info.client,
-      filename,
-      size: buffer ? null : format.size,
-      buffer: buffer || undefined,
-    });
-    res.json({
-      success: true,
-      data: {
-        downloadUrl,
-        title: info.title,
-        format: format.type,
-        quality: format.quality,
-        filename,
-      },
-    });
-  } catch (err) {
-    sendApiError(res, err);
-  }
-});
-
 // --- per-platform resolve ----------------------------------------------------
 app.post('/:platform/download', async (req, res) => {
   try {
     const platform = req.params.platform.toLowerCase();
-    if (!PLATFORM_KEYS.includes(platform) || platform === 'youtube') {
-      throw Errors.unsupportedPlatform(
-        platform === 'youtube'
-          ? 'YouTube uses the info → format → convert flow.'
-          : undefined
-      );
+    if (!PLATFORM_KEYS.includes(platform)) {
+      throw Errors.unsupportedPlatform();
     }
     const { url, mediaType } = req.body || {};
     if (!url) {
@@ -413,7 +350,7 @@ app.post('/api/batch', async (req, res) => {
 // streams the CDN URL.
 app.get('/dl', async (req, res) => {
   try {
-    const { u, ytdlp: ytdlpUrl, f, ext, c, s, b, sig } = req.query;
+    const { u, ytdlp: ytdlpUrl, f, ext, s, b, sig } = req.query;
     // `s` is the exact file size in bytes when the resolver knew it; `b=1`
     // marks a download that must buffer to disk first (merged / converted
     // output). Both ride inside the signature, so a client cannot lie
@@ -425,7 +362,6 @@ app.get('/dl', async (req, res) => {
         url: ytdlpUrl,
         formatId: f || '',
         ext: ext || '',
-        client: c || '',
         size: size || undefined,
         buffer: buffer || undefined,
       });
@@ -445,7 +381,7 @@ app.get('/dl', async (req, res) => {
         // and a working progress bar. The temp file is deleted after.
         const tmpPath = path.join(os.tmpdir(), `snatcher-${crypto.randomUUID()}.${safeExt}`);
         try {
-          await ytdlp.downloadToFile(cleanUrl, f || undefined, c || undefined, tmpPath);
+          await ytdlp.downloadToFile(cleanUrl, f || undefined, tmpPath);
           const stat = await fs.promises.stat(tmpPath);
           if (stat.size > config.maxDownloadBytes) {
             await fs.promises.unlink(tmpPath).catch(() => {});
@@ -467,7 +403,7 @@ app.get('/dl', async (req, res) => {
       res.setHeader('Content-Type', isAudio ? 'audio/mp4' : 'video/mp4');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       if (size) res.setHeader('Content-Length', size);
-      ytdlp.streamDownload(res, cleanUrl, f || undefined, c || undefined);
+      ytdlp.streamDownload(res, cleanUrl, f || undefined);
       return;
     }
 

@@ -1,4 +1,4 @@
-<%- include('partials/head', { title: 'Snatcher — grab any video, keep the file', description: 'Paste a link from YouTube, Instagram, Facebook, TikTok, Twitter/X or Pinterest and download the video or images in one click.' }) %>
+<%- include('partials/head', { title: 'Snatcher — grab any video, keep the file', description: 'Paste a link from Instagram, Facebook, TikTok, Twitter/X or Pinterest and download the video or images in one click.' }) %>
 <body data-page="home">
 <%- include('partials/icons') %>
 <%- include('partials/header', { platforms }) %>
@@ -7,7 +7,7 @@
     <div class="container">
       <div class="settle">
         <h1>Grab any video. Keep the file.</h1>
-        <p class="hero-lede">Paste a link from any of six platforms and take the file.</p>
+        <p class="hero-lede">Paste a link from any of five platforms and take the file.</p>
       </div>
 
       <div class="mode-toggle" role="group" aria-label="Download mode">
@@ -17,7 +17,7 @@
 
       <form id="singleForm" class="url-bar" novalidate>
         <label for="urlInput" class="visually-hidden">Media link</label>
-        <input type="url" id="urlInput" name="url" placeholder="Paste a link — YouTube, Instagram, TikTok, Pinterest…" autocomplete="off" spellcheck="false" />
+        <input type="url" id="urlInput" name="url" placeholder="Paste a link — Instagram, TikTok, Pinterest…" autocomplete="off" spellcheck="false" />
         <button type="button" class="btn btn--ghost" id="pasteBtn" title="Paste from clipboard">
           <svg aria-hidden="true"><use href="#i-paste" /></svg>
           Paste
@@ -30,7 +30,7 @@
 
       <div class="batch-box" id="batchBox" hidden>
         <label for="batchInput" class="visually-hidden">Links, one per line</label>
-        <textarea id="batchInput" placeholder="One link per line — up to 10.&#10;https://www.instagram.com/reel/...&#10;https://www.youtube.com/watch?v=..."></textarea>
+        <textarea id="batchInput" placeholder="One link per line — up to 10.&#10;https://www.instagram.com/reel/...&#10;https://www.tiktok.com/@user/video/..."></textarea>
         <div class="batch-actions">
           <button type="button" class="btn btn--primary" id="batchBtn">
             <svg aria-hidden="true"><use href="#i-download" /></svg>
@@ -48,7 +48,7 @@
   <section class="section">
     <div class="container">
       <div class="section-head">
-        <h2>Six platforms. One bar.</h2>
+        <h2>Five platforms. One bar.</h2>
         <p>Pick one, or paste any link above and let Snatcher work it out.</p>
       </div>
       <div class="platform-grid">

@@ -53,40 +53,38 @@ describe('FORMAT_ID_RE', () => {
 
 describe('buildYtDlpDownloadUrl', () => {
   // RED: this helper does not exist yet. The signed yt-dlp download URL is
-  // built in two places (per-item links and YouTube convert) — one helper.
+  // built in one place — per-item links — so one helper builds it.
   it('builds a signed url that verifies', () => {
     const url = buildYtDlpDownloadUrl({
-      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      url: 'https://www.pinterest.com/pin/1125618500656146145/',
       formatId: '137+140',
       ext: 'mp4',
-      client: 'tv_embedded',
-      filename: 'Rick_Astley.mp4',
+      filename: 'A_Promise_Kept.mp4',
     });
     expect(url).toContain('/dl?ytdlp=');
     expect(url).toContain('f=137%2B140');
-    expect(url).toContain('name=Rick_Astley.mp4');
+    expect(url).toContain('name=A_Promise_Kept.mp4');
     const params = new URL(url, 'http://localhost').searchParams;
-    const payload = `ytdlp=${params.get('ytdlp')}&f=${params.get('f')}&ext=${params.get('ext')}&c=${params.get('c')}`;
+    const payload = `ytdlp=${params.get('ytdlp')}&f=${params.get('f')}&ext=${params.get('ext')}`;
     expect(verifyDownload(payload, params.get('sig'))).toBe(true);
   });
 
-  it('defaults the client when none is given', () => {
+  it('carries no client parameter in the url', () => {
     const url = buildYtDlpDownloadUrl({
       url: 'https://www.pinterest.com/pin/1/',
       formatId: 'V_HLSV3_MOBILE-1025',
       ext: 'mp4',
       filename: 'pin.mp4',
     });
-    expect(url).toContain('c=tv_embedded');
+    expect(url).not.toContain('c=');
   });
 
   it('carries an exact size and buffer flag inside the signature', () => {
     const url = buildYtDlpDownloadUrl({
-      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      url: 'https://www.pinterest.com/pin/1125618500656146145/',
       formatId: '137+140',
       ext: 'mp4',
-      client: 'tv_embedded',
-      filename: 'Rick_Astley.mp4',
+      filename: 'A_Promise_Kept.mp4',
       size: 41123456,
       buffer: true,
     });
@@ -97,7 +95,6 @@ describe('buildYtDlpDownloadUrl', () => {
       url: params.get('ytdlp'),
       formatId: params.get('f'),
       ext: params.get('ext'),
-      client: params.get('c'),
       size: params.get('s'),
       buffer: params.get('b') === '1',
     });
@@ -106,7 +103,7 @@ describe('buildYtDlpDownloadUrl', () => {
 
   it('a tampered size does not verify', () => {
     const url = buildYtDlpDownloadUrl({
-      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      url: 'https://www.pinterest.com/pin/1125618500656146145/',
       formatId: '140',
       ext: 'm4a',
       filename: 'audio.m4a',
@@ -117,7 +114,6 @@ describe('buildYtDlpDownloadUrl', () => {
       url: params.get('ytdlp'),
       formatId: params.get('f'),
       ext: params.get('ext'),
-      client: params.get('c'),
       size: '9999999',
     });
     expect(verifyDownload(tampered, params.get('sig'))).toBe(false);

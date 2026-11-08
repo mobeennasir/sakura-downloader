@@ -1,24 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { mapYtDlpError, baseArgs, YTDLP_CLIENTS } from '../src/yt-dlp.js';
+import { mapYtDlpError, baseArgs } from '../src/yt-dlp.js';
 
-// Client rotation is the free fallback against YouTube's datacenter-IP bot
-// check: when one player client is told to sign in, the next one is tried.
-describe('YTDLP_CLIENTS', () => {
-  it('tries six clients in order, tv_embedded first', () => {
-    expect(YTDLP_CLIENTS).toEqual([
-      'tv_embedded',
-      'android',
-      'ios',
-      'mweb',
-      'web',
-      'web_safari',
-    ]);
-  });
-
-  it('skips the webpage fetch where the bot check usually triggers', () => {
-    const args = baseArgs('tv_embedded');
-    expect(args).toContain('youtube:player_skip=webpage');
-    expect(args).toContain('youtube:player_client=tv_embedded');
+// baseArgs is the shared yt-dlp flag set: quiet, a socket timeout, and the
+// login cookies when configured. No per-platform extractor args — yt-dlp
+// runs the same for every platform now.
+describe('baseArgs', () => {
+  it('carries the common flags and no youtube extractor args', () => {
+    const args = baseArgs();
+    expect(args).toContain('--no-warnings');
+    expect(args).toContain('--socket-timeout');
+    expect(args.join(' ')).not.toContain('youtube:');
+    expect(args.join(' ')).not.toContain('player_client');
   });
 });
 
@@ -27,52 +19,52 @@ describe('YTDLP_CLIENTS', () => {
 // (502) — retrying a dead link never helps.
 describe('mapYtDlpError', () => {
   it('maps dead-video wordings to link_not_found', () => {
-    expect(mapYtDlpError('ERROR: [youtube] xxxxxxxxxxx: This video is unavailable').code).toBe(
+    expect(mapYtDlpError('ERROR: [TikTok] xxxxxxxxxxx: This video is unavailable').code).toBe(
       'link_not_found'
     );
-    expect(mapYtDlpError('ERROR: [youtube] abc: Video unavailable').code).toBe(
+    expect(mapYtDlpError('ERROR: [TikTok] abc: Video unavailable').code).toBe(
       'link_not_found'
     );
     expect(
-      mapYtDlpError('ERROR: [youtube] abc: This video is no longer available').code
+      mapYtDlpError('ERROR: [TikTok] abc: This video is no longer available').code
     ).toBe('link_not_found');
     expect(
-      mapYtDlpError('ERROR: [youtube] abc: This video has been removed').code
+      mapYtDlpError('ERROR: [TikTok] abc: This video has been removed').code
     ).toBe('link_not_found');
-    expect(mapYtDlpError('ERROR: [youtube] abc: Video no longer available').code).toBe(
+    expect(mapYtDlpError('ERROR: [TikTok] abc: Video no longer available').code).toBe(
       'link_not_found'
     );
   });
 
   it('maps private videos to private_or_removed', () => {
     expect(
-      mapYtDlpError('ERROR: [youtube] abc: Private video. Sign in if you have access.').code
+      mapYtDlpError('ERROR: [TikTok] abc: Private video. Sign in if you have access.').code
     ).toBe('private_or_removed');
-    expect(mapYtDlpError('ERROR: [youtube] abc: This video is private').code).toBe(
+    expect(mapYtDlpError('ERROR: [TikTok] abc: This video is private').code).toBe(
       'private_or_removed'
     );
   });
 
   it('maps the sign-in bot check to forbidden', () => {
     expect(
-      mapYtDlpError('ERROR: [youtube] abc: Sign in to confirm you are not a bot').code
+      mapYtDlpError('ERROR: [TikTok] abc: Sign in to confirm you are not a bot').code
     ).toBe('forbidden');
   });
 
   it('maps "No video formats found" to no_media, not upstream_error', () => {
     // A Pinterest image pin: yt-dlp's extractor finds no video formats,
-    // but the pin (and its image) exists — btch finds it. Retrying other
-    // clients never helps, so this must not read as a 502.
+    // but the pin (and its image) exists — btch finds it. Retrying never
+    // helps, so this must not read as a 502.
     expect(
       mapYtDlpError(
         'ERROR: [Pinterest] 767300855301081893: No video formats found!; please report this issue on https://github.com/yt-dlp/yt-dlp/issues'
       ).code
     ).toBe('no_media');
-    expect(mapYtDlpError('ERROR: [youtube] abc: No formats found!').code).toBe('no_media');
+    expect(mapYtDlpError('ERROR: [TikTok] abc: No formats found!').code).toBe('no_media');
   });
 
   it('falls through to upstream_error for anything else', () => {
-    expect(mapYtDlpError('ERROR: [youtube] abc: Something odd happened').code).toBe(
+    expect(mapYtDlpError('ERROR: [TikTok] abc: Something odd happened').code).toBe(
       'upstream_error'
     );
     expect(mapYtDlpError('').code).toBe('upstream_error');

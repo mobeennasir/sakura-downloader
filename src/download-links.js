@@ -38,27 +38,24 @@ function needsBuffer({ formatId, isHls }) {
 // bytes — only ever set for a single-file stream (never for a buffered one,
 // where the proxy stats the finished file). `buffer` marks the buffered
 // case. Both ride inside the signature, so a client cannot lie about them.
-function ytdlpPayload({ url, formatId, ext, client, size, buffer }) {
-  const useClient = client || 'tv_embedded';
+function ytdlpPayload({ url, formatId, ext, size, buffer }) {
   const useExt = ext || 'mp4';
-  let payload = `ytdlp=${url}&f=${formatId}&ext=${useExt}&c=${useClient}`;
+  let payload = `ytdlp=${url}&f=${formatId}&ext=${useExt}`;
   if (size) payload += `&s=${size}`;
   if (buffer) payload += `&b=1`;
   return payload;
 }
 
-// One signed download URL for a yt-dlp stream (YouTube formats, Pinterest
-// HLS videos, any item whose file must be converted, not proxied as-is).
+// One signed download URL for a yt-dlp stream (Pinterest HLS videos, any
+// item whose file must be converted, not proxied as-is).
 // The payload is canonical so the proxy can verify it with verifyDownload.
-function buildYtDlpDownloadUrl({ url, formatId, ext, client, filename, size, buffer }) {
-  const useClient = client || 'tv_embedded';
+function buildYtDlpDownloadUrl({ url, formatId, ext, filename, size, buffer }) {
   const useExt = ext || 'mp4';
-  const payload = ytdlpPayload({ url, formatId, ext: useExt, client: useClient, size, buffer });
+  const payload = ytdlpPayload({ url, formatId, ext: useExt, size, buffer });
   let out =
     `/dl?ytdlp=${encodeURIComponent(url)}` +
     `&f=${encodeURIComponent(formatId)}` +
-    `&ext=${encodeURIComponent(useExt)}` +
-    `&c=${encodeURIComponent(useClient)}`;
+    `&ext=${encodeURIComponent(useExt)}`;
   if (size) out += `&s=${encodeURIComponent(String(size))}`;
   if (buffer) out += `&b=1`;
   out +=

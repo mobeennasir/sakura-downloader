@@ -1,37 +1,17 @@
 'use strict';
 
 // yt-dlp, used directly (the binary is spawned — no wrapper library, the
-// published wrapper is deprecated). Covers YouTube, Pinterest, and the
-// Instagram fallback. Every call has a timeout; a hung binary is killed.
+// published wrapper is deprecated). Covers Pinterest and the Instagram
+// fallback. Every call has a timeout; a hung binary is killed.
 
 const { spawn } = require('child_process');
 const config = require('./config');
-const { Errors, isVerdictError } = require('./errors');
+const { Errors } = require('./errors');
 const logger = require('./logger');
 
 // A format id goes to a spawned process: only yt-dlp format selectors may
 // pass — no spaces, no shell characters, no flags.
 const FORMAT_ID_RE = /^[0-9a-zA-Z+_-]+$/;
-
-// Player clients, in order. tv_embedded returns the full format range
-// (2160p down) and gets past the bot check; android is the reliable fallback
-// (360p combined). ios, mweb, web and web_safari are further fallbacks —
-// Koyeb's IP has been seen blocked on the first two, so the retry keeps
-// going. A chain in one call does not work — yt-dlp keeps only one
-// client's result — so getInfo races them in parallel instead (see below).
-// player_skip=webpage skips the initial webpage fetch, where the "sign in
-// to confirm you're not a bot" page usually triggers; the formats and
-// description come from the player response instead.
-const YTDLP_CLIENTS = ['tv_embedded', 'android', 'ios', 'mweb', 'web', 'web_safari'];
-
-function isYouTubeUrl(rawUrl) {
-  try {
-    const host = new URL(rawUrl).hostname.toLowerCase();
-    return host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be';
-  } catch {
-    return false;
-  }
-}
 
 // Login cookies for yt-dlp (--cookies), when configured. The content comes
 // from the YTDLP_COOKIES env var (a Koyeb secret) and is written once to a
@@ -73,17 +53,22 @@ function hasCookies() {
 }
 
 // Cookies validation — "configured" only means the env var is set, which is
-// why a bad paste still showed up as configured while YouTube kept asking
-// for sign-in. This reads the file yt-dlp actually gets and checks it is a
-// real Netscape cookies file carrying a YouTube login session. Never logs
-// or returns a value — only a status. Statuses:
+// why a bad paste still showed up as configured while the platforms kept
+// asking for sign-in. This reads the file yt-dlp actually gets and checks
+// it is a real Netscape cookies file carrying an Instagram or Facebook
+// login session — the session is what lets yt-dlp fetch captions from a
+// datacenter IP. Never logs or returns a value — only a status. Statuses:
 //   'not-configured' — no cookies env/file at all
 //   'unreadable' — the file could not be read (the earlier write failed)
-//   'invalid' — not a cookies file, or no youtube.com lines in it
+//   'invalid' — not a cookies file, or no instagram.com / facebook.com
+//     lines in it
 //   'missing-session' — cookies present, but no login session in them
 //     (exported while signed out, or only consent cookies)
 //   'ok' — a login session is present
-const SESSION_COOKIE_NAMES = new Set(['SID', 'HSID', 'SSID', 'APISID', 'SAPISID']);
+const SESSION_COOKIES = {
+  instagram: new Set(['sessionid']),
+  facebook: new Set(['c_user', 'xs']),
+};
 
 function validateCookiesContent(content) {
   if (!content || typeof content !== 'string' || !content.trim()) {
@@ -97,30 +82,37 @@ function validateCookiesContent(content) {
   if (cookieLines.length === 0) {
     return { status: 'invalid', detail: 'no cookie lines in file' };
   }
-  const youtubeLines = cookieLines.filter((l) => {
-    const fields = l.split('\t');
-    if (fields.length < 7) return false;
+  const byPlatform = { instagram: [], facebook: [] };
+  for (const line of cookieLines) {
+    const fields = line.split('\t');
+    if (fields.length < 7) continue;
     const domain = fields[0].toLowerCase();
-    return domain === 'youtube.com' || domain.endsWith('.youtube.com');
+    if (domain === 'instagram.com' || domain.endsWith('.instagram.com')) {
+      byPlatform.instagram.push(line);
+    } else if (domain === 'facebook.com' || domain.endsWith('.facebook.com')) {
+      byPlatform.facebook.push(line);
+    }
+  }
+  const present = Object.keys(byPlatform).filter((p) => byPlatform[p].length > 0);
+  if (present.length === 0) {
+    return { status: 'invalid', detail: 'no instagram.com or facebook.com cookies in file' };
+  }
+  const withSession = present.filter((p) => {
+    const names = new Set(byPlatform[p].map((line) => line.split('\t')[5]));
+    return [...SESSION_COOKIES[p]].some((n) => names.has(n));
   });
-  if (youtubeLines.length === 0) {
-    return { status: 'invalid', detail: 'no youtube.com cookies in file' };
-  }
-  const names = new Set();
-  for (const line of youtubeLines) {
-    const name = line.split('\t')[5];
-    if (name) names.add(name);
-  }
-  const session = [...SESSION_COOKIE_NAMES].filter((n) => names.has(n));
-  if (session.length === 0) {
+  if (withSession.length === 0) {
     return {
       status: 'missing-session',
-      detail: 'no YouTube login session cookies (SID/HSID/SSID)',
+      detail: 'no login session cookies (instagram sessionid, facebook c_user/xs)',
     };
   }
   return {
     status: 'ok',
-    detail: `${youtubeLines.length} youtube.com cookies, session present`,
+    detail:
+      withSession.length > 1
+        ? 'instagram + facebook sessions present'
+        : `${withSession[0]} session present`,
   };
 }
 
@@ -144,22 +136,14 @@ function cookiesStatus() {
     cookiesStatusLogged = true;
     logger.warn(
       { cookiesStatus: status, detail },
-      'YouTube cookies configured but not usable — re-export while signed in to YouTube'
+      'Login cookies configured but not usable — re-export while signed in to Instagram/Facebook'
     );
   }
   return `configured (${status}: ${detail})`;
 }
 
-function baseArgs(client) {
-  const args = [
-    '--extractor-args',
-    `youtube:player_client=${client}`,
-    '--extractor-args',
-    'youtube:player_skip=webpage',
-    '--no-warnings',
-    '--socket-timeout',
-    '15',
-  ];
+function baseArgs() {
+  const args = ['--no-warnings', '--socket-timeout', '15'];
   const cookies = cookiesPath();
   if (cookies) args.push('--cookies', cookies);
   return args;
@@ -183,8 +167,8 @@ function runYtDlp(args, { timeoutMs, signal } = {}) {
     }, timeoutMs || config.ytdlpTimeoutMs);
     timer.unref();
 
-    // AbortSignal (used by getInfo's client race): another client won, so
-    // kill this one. Rejects with code 'aborted' — the race ignores it.
+    // AbortSignal: lets a caller kill a run in flight. Rejects with code
+    // 'aborted'.
     const onAbort = () => {
       if (settled) return;
       settled = true;
@@ -242,7 +226,7 @@ function mapYtDlpError(stderr) {
   const s = stderr || '';
   if (/sign in to confirm|not a bot/i.test(s)) {
     return Errors.forbidden(
-      'YouTube asked this server to sign in. Try again later — it usually clears.'
+      'The media service asked this server to sign in. Try again later — it usually clears.'
     );
   }
   if (/empty media response|not accessible without being logged-in/i.test(s)) {
@@ -253,9 +237,8 @@ function mapYtDlpError(stderr) {
   }
   // A pin/post yt-dlp's extractor cannot read at all ("No video formats
   // found!") — the content exists, but there is no downloadable format in
-  // it. It is deterministic: no other player client will find formats
-  // either, so this maps to no_media and getInfo stops retrying after the
-  // first client. The resolver then falls back to its other adapter (btch
+  // it. It is deterministic: no retry will find formats, so this maps to
+  // no_media. The resolver then falls back to its other adapter (btch
   // for Pinterest), which often does find the media — an image pin reads
   // exactly this way.
   if (/no video formats found|no formats found/i.test(s)) {
@@ -279,124 +262,29 @@ function mapYtDlpError(stderr) {
   return Errors.upstreamError();
 }
 
-// Full metadata for a URL (video, pin, post). Returns the parsed JSON plus
-// `_client` — which player client worked, so the download uses the same one.
-// Verdict errors (private, not found, invalid) are not retried: another
-// client will not change them.
-//
-// For YouTube, the player clients race in two waves: tv_embedded + android
-// first, the other four 5 s later if nothing won yet. The old sequential
-// chain took ~95 s when every client failed (the sign-in wall on a flagged
-// IP — ~18 s per client), and the browser gives up at 60 s; racing all
-// six at once fixed that but slowed the winner ~3x (4 s alone, 12 s in a
-// six-way race — six Python processes fighting over one IP). Two waves
-// keep the common case at ~4 s and bound the failure path at ~15 s. The
-// first client that returns wins and the rest are killed; when every
-// client fails, the verdict error is reported (not the last retry's
-// noise), so a dead link still reads as dead. Per-attempt timeout is
-// 15 s. And when BOTH wave-1 clients time out, the IP is being throttled
-// — the other four would hang the same way, so the race stops there with
-// a clear throttling error instead of burning another ~20 s. Non-YouTube
-// URLs use one client only (player_client is YouTube-specific; racing six
-// copies of a Pinterest lookup would just burn CPU).
+// Full metadata for a URL (video, pin, post). One yt-dlp call, 15 s cap.
+// Returns the parsed JSON. On failure the mapped error is thrown —
+// verdict errors (private, not found, invalid) are final, so the
+// resolver does not retry them.
 async function getInfo(url) {
-  const clients = isYouTubeUrl(url) ? YTDLP_CLIENTS : [YTDLP_CLIENTS[0]];
-  const controller = new AbortController();
-  const runAttempt = (client) =>
-    (async () => {
-      try {
-        const { stdout } = await runYtDlp(
-          ['-j', '--no-playlist', ...baseArgs(client), url],
-          { timeoutMs: 15000, signal: controller.signal }
-        );
-        const firstLine = stdout
-          .split('\n')
-          .find((line) => line.trim().startsWith('{'));
-        if (!firstLine) throw Errors.noMedia();
-        return { ...JSON.parse(firstLine), _client: client };
-      } catch (err) {
-        if (!err || err.code !== 'aborted') {
-          logger.warn(
-            { client, err: err.message },
-            'yt-dlp client failed, trying next'
-          );
-        }
-        throw err;
-      }
-    })();
-
-  return new Promise((resolve, reject) => {
-    let done = false;
-    let remaining = clients.length;
-    const errors = [];
-    const wave1 = new Set(clients.slice(0, 2));
-    let wave1Timeouts = 0;
-    const settle = (value, err, client) => {
-      if (done) return;
-      if (value) {
-        done = true;
-        controller.abort();
-        resolve(value);
-        return;
-      }
-      // Both wave-1 clients timed out: the platform is throttling this
-      // server's IP, and wave 2 would hang the same way. Stop now with a
-      // clear message instead of making the user wait out every client.
-      if (err && err.code === 'timeout' && wave1.has(client)) {
-        wave1Timeouts += 1;
-        if (wave1Timeouts >= 2) {
-          done = true;
-          clearTimeout(wave2Timer);
-          controller.abort();
-          return reject(
-            Errors.rateLimited(
-              'YouTube is throttling this server right now. Try again in a few minutes.'
-            )
-          );
-        }
-      }
-      if (err && err.code !== 'aborted') errors.push(err);
-      if (--remaining === 0) {
-        done = true;
-        // A verdict error is the answer when every client agrees the link
-        // is dead/private/has no formats — report it, not the last
-        // retry's noise.
-        const verdict = errors.find(
-          (e) => isVerdictError(e) || e.code === 'no_media'
-        );
-        if (verdict) return reject(verdict);
-        const last = errors[errors.length - 1];
-        if (last) {
-          logger.warn({ err: last.message }, 'yt-dlp failed on every client');
-          return reject(last);
-        }
-        reject(Errors.upstreamError());
-      }
-    };
-    const attempt = (client) => {
-      runAttempt(client).then(
-        (value) => settle(value, null, client),
-        (err) => settle(null, err, client)
-      );
-    };
-    clients.slice(0, 2).forEach(attempt);
-    const wave2Timer = setTimeout(() => {
-      if (!done) clients.slice(2).forEach(attempt);
-    }, 5000);
-    wave2Timer.unref();
+  const { stdout } = await runYtDlp(['-j', '--no-playlist', ...baseArgs(), url], {
+    timeoutMs: 15000,
   });
+  const firstLine = stdout
+    .split('\n')
+    .find((line) => line.trim().startsWith('{'));
+  if (!firstLine) throw Errors.noMedia();
+  return JSON.parse(firstLine);
 }
 
 // Stream a download to an Express response. formatId is a yt-dlp -f selector
 // (e.g. "137+140" or a single format id). The response headers (content type,
-// disposition, filename) are set by the caller. `client` is the player client
-// that worked for the info call; it defaults to the first one.
-function streamDownload(res, url, formatId, client) {
+// disposition, filename) are set by the caller.
+function streamDownload(res, url, formatId) {
   const format = formatId || 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b';
-  const useClient = YTDLP_CLIENTS.includes(client) ? client : YTDLP_CLIENTS[0];
   const child = spawn(
     config.ytdlpPath,
-    ['-f', format, '-o', '-', ...baseArgs(useClient), url],
+    ['-f', format, '-o', '-', ...baseArgs(), url],
     { stdio: ['ignore', 'pipe', 'pipe'] }
   );
 
@@ -478,10 +366,9 @@ async function cleanupDownloadFiles(destPath) {
   }
 }
 
-function downloadToFile(url, formatId, client, destPath) {
+function downloadToFile(url, formatId, destPath) {
   return new Promise((resolve, reject) => {
     const format = formatId || 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b';
-    const useClient = YTDLP_CLIENTS.includes(client) ? client : YTDLP_CLIENTS[0];
     // HLS/DASH fragments download five at a time instead of one after
     // another: Pinterest's audio rendition has 70+ fragments, and fetching
     // them sequentially took over five minutes for one short pin (the video
@@ -494,7 +381,7 @@ function downloadToFile(url, formatId, client, destPath) {
     // the throttle is per-stream (~78 KiB/s from this VM), so the
     // download of a ~2m46s pin still takes ~2 minutes; that is the
     // platform's speed, not the app stalling.
-    const child = spawn(config.ytdlpPath, ['-f', format, '-o', destPath, ...baseArgs(useClient), '--concurrent-fragments', '5', '--hls-prefer-ffmpeg', url], {
+    const child = spawn(config.ytdlpPath, ['-f', format, '-o', destPath, ...baseArgs(), '--concurrent-fragments', '5', '--hls-prefer-ffmpeg', url], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stderr = '';
@@ -541,4 +428,4 @@ async function binaryAvailable() {
   }
 }
 
-module.exports = { runYtDlp, getInfo, streamDownload, downloadToFile, cleanupDownloadFiles, binaryAvailable, cookiesPath, hasCookies, cookiesStatus, validateCookiesContent, mapYtDlpError, baseArgs, YTDLP_CLIENTS, FORMAT_ID_RE };
+module.exports = { runYtDlp, getInfo, streamDownload, downloadToFile, cleanupDownloadFiles, binaryAvailable, cookiesPath, hasCookies, cookiesStatus, validateCookiesContent, mapYtDlpError, baseArgs, FORMAT_ID_RE };

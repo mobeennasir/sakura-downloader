@@ -8,7 +8,6 @@ import { ytdlpInfoToItems } from '../src/media.js';
 const info = (formats) => ({
   title: 'Test reel',
   thumbnail: null,
-  _client: 'tv_embedded',
   formats,
 });
 

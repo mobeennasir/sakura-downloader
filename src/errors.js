@@ -129,7 +129,7 @@ const ERROR_PAGES = {
   },
   unsupported_platform: {
     title: 'Not supported yet.',
-    line: 'Snatcher works with YouTube, Instagram, Facebook, TikTok, Twitter/X and Pinterest.',
+    line: 'Snatcher works with Instagram, Facebook, TikTok, Twitter/X and Pinterest.',
     animation: 'empty',
     status: 400,
   },

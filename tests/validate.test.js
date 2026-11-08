@@ -5,7 +5,6 @@ import { Errors, isVerdictError } from '../src/errors.js';
 describe('detectPlatform', () => {
   it('identifies each platform by host', () => {
     expect(detectPlatform('https://www.instagram.com/reel/abc/')).toBe('instagram');
-    expect(detectPlatform('https://youtu.be/dQw4w9WgXcQ')).toBe('youtube');
     expect(detectPlatform('https://pin.it/abc123')).toBe('pinterest');
     expect(detectPlatform('https://vt.tiktok.com/abc/')).toBe('tiktok');
     expect(detectPlatform('https://fb.watch/abc/')).toBe('facebook');
@@ -13,7 +12,6 @@ describe('detectPlatform', () => {
   });
 
   it('identifies platform subdomains (mobile, country)', () => {
-    expect(detectPlatform('https://m.youtube.com/watch?v=x')).toBe('youtube');
     expect(detectPlatform('https://m.facebook.com/watch/?v=1')).toBe('facebook');
     expect(detectPlatform('https://in.pinterest.com/pin/1/')).toBe('pinterest');
     expect(detectPlatform('https://pinterest.co.uk/pin/1/')).toBe('pinterest');
@@ -47,13 +45,13 @@ describe('validateMediaUrl', () => {
       validateMediaUrl('https://www.tiktok.com/@u/video/1', 'instagram')
     ).rejects.toThrow('That is not an Instagram link.');
     await expect(
-      validateMediaUrl('https://www.instagram.com/reel/abc', 'youtube')
-    ).rejects.toThrow('That is not a YouTube link.');
+      validateMediaUrl('https://www.instagram.com/reel/abc', 'tiktok')
+    ).rejects.toThrow('That is not a TikTok link.');
   });
 
   it('accepts platform subdomains and Pinterest country domains', async () => {
-    const a = await validateMediaUrl('https://m.youtube.com/watch?v=x', 'youtube');
-    expect(a.platform).toBe('youtube');
+    const a = await validateMediaUrl('https://m.facebook.com/watch/?v=1', 'facebook');
+    expect(a.platform).toBe('facebook');
     const b = await validateMediaUrl('https://in.pinterest.com/pin/1/', 'pinterest');
     expect(b.platform).toBe('pinterest');
     const c = await validateMediaUrl('https://pinterest.co.uk/pin/1/', 'pinterest');
@@ -94,14 +92,14 @@ describe('validateMediaUrl', () => {
   });
 
   it('detects the platform when none is given', async () => {
-    const { platform } = await validateMediaUrl('https://www.youtube.com/watch?v=x');
-    expect(platform).toBe('youtube');
+    const { platform } = await validateMediaUrl('https://www.instagram.com/reel/abc/');
+    expect(platform).toBe('instagram');
   });
 });
 
 describe('isVerdictError', () => {
-  // RED: this helper does not exist yet. A verdict error (private, not found,
-  // invalid) must never trigger a retry with another client or adapter.
+  // RED: this helper does not exist yet. A verdict error (private, not-found,
+  // invalid) must never trigger a retry with another adapter.
   it('is true for private, not-found and invalid-url errors', () => {
     expect(isVerdictError(Errors.privateOrRemoved())).toBe(true);
     expect(isVerdictError(Errors.linkNotFound())).toBe(true);

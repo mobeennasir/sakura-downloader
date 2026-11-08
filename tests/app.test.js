@@ -26,7 +26,7 @@ describe('pages', () => {
     expect(res.text).toContain('Grab any video');
   });
 
-  for (const platform of ['instagram', 'youtube', 'pinterest', 'tiktok', 'facebook', 'twitter']) {
+  for (const platform of ['instagram', 'pinterest', 'tiktok', 'facebook', 'twitter']) {
     it(`GET /${platform} renders`, async () => {
       const res = await request(app).get(`/${platform}`);
       expect(res.status).toBe(200);
@@ -60,13 +60,13 @@ describe('pages', () => {
 
   it('GET /error carries a WhatsApp report link with the failed URL prefilled', async () => {
     const res = await request(app).get(
-      '/error?code=forbidden&url=' + encodeURIComponent('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+      '/error?code=forbidden&url=' + encodeURIComponent('https://www.instagram.com/reel/DDWV2JeSGrG/')
     );
     expect(res.status).toBe(403);
     expect(res.text).toContain('Report on WhatsApp');
     // wa.me link to the owner's number; the message carries the error + link.
     expect(res.text).toContain('https://wa.me/923136701631?text=');
-    expect(res.text).toContain(encodeURIComponent('https://www.youtube.com/watch?v=dQw4w9WgXcQ'));
+    expect(res.text).toContain(encodeURIComponent('https://www.instagram.com/reel/DDWV2JeSGrG/'));
     expect(res.text).toContain('forbidden');
   });
 
@@ -103,7 +103,6 @@ describe('pages', () => {
   it('platform icons are the official brand glyphs on glassy tiles, not hand-drawn shapes', async () => {
     const res = await request(app).get('/');
     expect(res.text).toContain('tile-shine');
-    expect(res.text).toContain('#i-youtube');
     expect(res.text).toContain('#i-instagram');
     expect(res.text).toContain('#i-tiktok');
   });
@@ -126,35 +125,6 @@ describe('static assets', () => {
     // a redeploy. max-age 0 + ETag means revalidation every load, 304 when
     // unchanged, and the new file the moment it changes.
     expect(res.headers['cache-control']).toMatch(/max-age=0/);
-  });
-});
-
-describe('YouTube API', () => {
-  it('POST /api/youtube/info without a url is a 400', async () => {
-    const res = await request(app).post('/api/youtube/info').send({});
-    expect(res.status).toBe(400);
-    expect(res.body.code).toBe('invalid_url');
-  });
-
-  it('POST /api/youtube/info with a non-YouTube url is a 400', async () => {
-    const res = await request(app)
-      .post('/api/youtube/info')
-      .send({ url: 'https://example.com/watch?v=x' });
-    expect(res.status).toBe(400);
-    expect(res.body.code).toBe('invalid_url');
-  });
-
-  it('POST /api/youtube/convert without url and format is a 400', async () => {
-    const res = await request(app).post('/api/youtube/convert').send({});
-    expect(res.status).toBe(400);
-  });
-
-  it('POST /api/youtube/convert rejects a format id with shell characters', async () => {
-    const res = await request(app)
-      .post('/api/youtube/convert')
-      .send({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', formatId: '137; rm -rf /' });
-    expect(res.status).toBe(400);
-    expect(res.body.code).toBe('invalid_url');
   });
 });
 
@@ -181,12 +151,18 @@ describe('platform download', () => {
     expect(res.body.code).toBe('invalid_url');
   });
 
-  it('POST /youtube/download is rejected — YouTube uses the info flow', async () => {
+  it('POST /youtube/download is rejected — YouTube is not supported', async () => {
     const res = await request(app)
       .post('/youtube/download')
       .send({ url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('unsupported_platform');
+  });
+
+  it('GET /youtube redirects to the error page', async () => {
+    const res = await request(app).get('/youtube');
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/error?code=not_found');
   });
 });
 

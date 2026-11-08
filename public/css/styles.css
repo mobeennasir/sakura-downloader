@@ -876,74 +876,6 @@ video {
   margin-top: var(--space-md);
 }
 
-/* Format list (YouTube) */
-.format-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  max-width: 720px;
-  border-top: var(--rule-hair) solid var(--color-rule);
-}
-
-.format-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md) 0;
-  border-bottom: var(--rule-hair) solid var(--color-rule);
-}
-
-.format-row .format-label {
-  font-weight: 500;
-}
-
-.format-row .format-size {
-  margin-left: auto;
-  color: var(--color-muted);
-  font-family: var(--font-outlier);
-  font-size: 0.9375rem;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Each format row carries its own Download button. */
-.format-row .btn {
-  flex: none;
-  min-height: 40px;
-  padding: var(--space-xs) var(--space-md);
-  font-size: 0.9375rem;
-}
-
-.video-summary {
-  display: flex;
-  gap: var(--space-lg);
-  align-items: flex-start;
-  max-width: 720px;
-  margin-bottom: var(--space-lg);
-  background: var(--color-cotton);
-  border-radius: var(--radius-card);
-  box-shadow: var(--edge-stock), var(--cast-stock);
-  padding: var(--space-md);
-}
-
-.video-summary img {
-  width: 168px;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  flex: none;
-  border-radius: 4px;
-}
-
-.video-summary .title {
-  font-weight: 500;
-  overflow-wrap: break-word;
-}
-
-.video-summary .meta {
-  color: var(--color-muted);
-  font-size: 0.9375rem;
-  margin-top: var(--space-xs);
-}
-
 /* Recent links */
 .recent-list {
   list-style: none;
@@ -1470,14 +1402,6 @@ video {
   .url-bar .btn {
     flex: 1;
     border-left: 0;
-  }
-
-  .video-summary {
-    flex-direction: column;
-  }
-
-  .video-summary img {
-    width: 100%;
   }
 
   /* Small screens: two cards per row. The old rule stacked one card per

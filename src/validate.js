@@ -9,13 +9,6 @@ const { Errors } = require('./errors');
 // no private IPs, no arbitrary hosts.
 const PLATFORM_HOSTS = {
   instagram: ['instagram.com', 'www.instagram.com'],
-  youtube: [
-    'youtube.com',
-    'www.youtube.com',
-    'youtu.be',
-    'music.youtube.com',
-    'www.music.youtube.com',
-  ],
   // Country domains are separate domains, not subdomains, so they are
   // listed explicitly — a user in India pastes in.pinterest.com (a subdomain,
   // covered by the suffix rule below), a user in the UK pastes
@@ -61,7 +54,7 @@ const PLATFORM_HOSTS = {
 };
 
 // A host is allowed when it is exactly an allowlisted host, or a subdomain
-// of one (m.youtube.com, m.facebook.com, in.pinterest.com, mobile.x.com).
+// of one (m.facebook.com, in.pinterest.com, mobile.x.com).
 // The platform owns its own subdomains, so the suffix rule is safe — and the
 // DNS check below still applies. It does NOT match lookalikes:
 // evil-pinterest.com and pinterest.evil.com are not subdomains of
@@ -80,7 +73,6 @@ function platformForHost(host) {
 // Display names for error messages — "an Instagram link", not "a instagram link".
 const PLATFORM_DISPLAY = {
   instagram: 'an Instagram',
-  youtube: 'a YouTube',
   pinterest: 'a Pinterest',
   tiktok: 'a TikTok',
   facebook: 'a Facebook',

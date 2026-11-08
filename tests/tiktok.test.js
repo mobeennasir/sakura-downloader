@@ -22,7 +22,6 @@ const tiktokInfo = () => ({
   title: 'TikTok video',
   description: 'A test video',
   thumbnail: 'https://cdn.example/thumb.jpg',
-  _client: 'tv_embedded',
   formats: [
     { format_id: 'download', ext: 'mp4', protocol: 'https', vcodec: 'h264', acodec: 'aac', height: 720, filesize: 1619814, url: CDN_720 },
     { format_id: 'bytevc1_1080p_788199-0', ext: 'mp4', protocol: 'https', vcodec: 'h264', acodec: 'aac', height: 1080, filesize: 2118484, url: CDN_1080 },
