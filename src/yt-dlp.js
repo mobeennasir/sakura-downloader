@@ -18,11 +18,20 @@ const FORMAT_ID_RE = /^[0-9a-zA-Z+_-]+$/;
 // (360p combined). ios, mweb, web and web_safari are further fallbacks —
 // Koyeb's IP has been seen blocked on the first two, so the retry keeps
 // going. A chain in one call does not work — yt-dlp keeps only one
-// client's result — so the code retries client by client instead.
+// client's result — so getInfo races them in parallel instead (see below).
 // player_skip=webpage skips the initial webpage fetch, where the "sign in
 // to confirm you're not a bot" page usually triggers; the formats and
 // description come from the player response instead.
 const YTDLP_CLIENTS = ['tv_embedded', 'android', 'ios', 'mweb', 'web', 'web_safari'];
+
+function isYouTubeUrl(rawUrl) {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    return host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be';
+  } catch {
+    return false;
+  }
+}
 
 // Login cookies for yt-dlp (--cookies), when configured. The content comes
 // from the YTDLP_COOKIES env var (a Koyeb secret) and is written once to a
@@ -63,6 +72,84 @@ function hasCookies() {
   return Boolean(config.ytdlpCookies || config.ytdlpCookiesFile);
 }
 
+// Cookies validation — "configured" only means the env var is set, which is
+// why a bad paste still showed up as configured while YouTube kept asking
+// for sign-in. This reads the file yt-dlp actually gets and checks it is a
+// real Netscape cookies file carrying a YouTube login session. Never logs
+// or returns a value — only a status. Statuses:
+//   'not-configured' — no cookies env/file at all
+//   'unreadable' — the file could not be read (the earlier write failed)
+//   'invalid' — not a cookies file, or no youtube.com lines in it
+//   'missing-session' — cookies present, but no login session in them
+//     (exported while signed out, or only consent cookies)
+//   'ok' — a login session is present
+const SESSION_COOKIE_NAMES = new Set(['SID', 'HSID', 'SSID', 'APISID', 'SAPISID']);
+
+function validateCookiesContent(content) {
+  if (!content || typeof content !== 'string' || !content.trim()) {
+    return { status: 'invalid', detail: 'empty cookies content' };
+  }
+  const lines = content
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const cookieLines = lines.filter((l) => !l.startsWith('#'));
+  if (cookieLines.length === 0) {
+    return { status: 'invalid', detail: 'no cookie lines in file' };
+  }
+  const youtubeLines = cookieLines.filter((l) => {
+    const fields = l.split('\t');
+    if (fields.length < 7) return false;
+    const domain = fields[0].toLowerCase();
+    return domain === 'youtube.com' || domain.endsWith('.youtube.com');
+  });
+  if (youtubeLines.length === 0) {
+    return { status: 'invalid', detail: 'no youtube.com cookies in file' };
+  }
+  const names = new Set();
+  for (const line of youtubeLines) {
+    const name = line.split('\t')[5];
+    if (name) names.add(name);
+  }
+  const session = [...SESSION_COOKIE_NAMES].filter((n) => names.has(n));
+  if (session.length === 0) {
+    return {
+      status: 'missing-session',
+      detail: 'no YouTube login session cookies (SID/HSID/SSID)',
+    };
+  }
+  return {
+    status: 'ok',
+    detail: `${youtubeLines.length} youtube.com cookies, session present`,
+  };
+}
+
+// The one-line cookies status for /health/ready. Reads the same file yt-dlp
+// gets, so it answers whether the cookies are usable — not just present.
+// Logs once when they are configured but unusable, so the Koyeb logs say so.
+let cookiesStatusLogged = false;
+function cookiesStatus() {
+  if (!hasCookies()) return 'not configured';
+  const file = cookiesPath();
+  if (!file) return 'configured (unreadable — could not write cookies file)';
+  let content;
+  try {
+    content = fs.readFileSync(file, 'utf8');
+  } catch {
+    return 'configured (unreadable — could not read cookies file)';
+  }
+  const { status, detail } = validateCookiesContent(content);
+  if (status === 'ok') return 'configured (valid session)';
+  if (!cookiesStatusLogged) {
+    cookiesStatusLogged = true;
+    logger.warn(
+      { cookiesStatus: status, detail },
+      'YouTube cookies configured but not usable — re-export while signed in to YouTube'
+    );
+  }
+  return `configured (${status}: ${detail})`;
+}
+
 function baseArgs(client) {
   const args = [
     '--extractor-args',
@@ -78,7 +165,7 @@ function baseArgs(client) {
   return args;
 }
 
-function runYtDlp(args, { timeoutMs } = {}) {
+function runYtDlp(args, { timeoutMs, signal } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(config.ytdlpPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -96,6 +183,29 @@ function runYtDlp(args, { timeoutMs } = {}) {
     }, timeoutMs || config.ytdlpTimeoutMs);
     timer.unref();
 
+    // AbortSignal (used by getInfo's client race): another client won, so
+    // kill this one. Rejects with code 'aborted' — the race ignores it.
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill('SIGKILL');
+      const err = new Error('aborted');
+      err.code = 'aborted';
+      reject(err);
+    };
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    const settle = (fn) => (...a) => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      fn(...a);
+    };
+
     child.stdout.on('data', (d) => {
       stdout += d;
       // Never buffer an unbounded download into memory.
@@ -106,7 +216,7 @@ function runYtDlp(args, { timeoutMs } = {}) {
     child.stderr.on('data', (d) => {
       stderr += d;
     });
-    child.on('error', (err) => {
+    child.on('error', settle((err) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -114,8 +224,8 @@ function runYtDlp(args, { timeoutMs } = {}) {
       reject(
         Errors.upstreamError('The downloader is not available right now.')
       );
-    });
-    child.on('close', (code) => {
+    }));
+    child.on('close', settle((code) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -124,7 +234,7 @@ function runYtDlp(args, { timeoutMs } = {}) {
       } else {
         reject(mapYtDlpError(stderr));
       }
-    });
+    }));
   });
 }
 
@@ -173,36 +283,88 @@ function mapYtDlpError(stderr) {
 // `_client` — which player client worked, so the download uses the same one.
 // Verdict errors (private, not found, invalid) are not retried: another
 // client will not change them.
+//
+// For YouTube, the player clients race in two waves: tv_embedded + android
+// first, the other four 5 s later if nothing won yet. The old sequential
+// chain took ~95 s when every client failed (the sign-in wall on a flagged
+// IP — ~18 s per client), and the browser gives up at 60 s; racing all
+// six at once fixed that but slowed the winner ~3x (4 s alone, 12 s in a
+// six-way race — six Python processes fighting over one IP). Two waves
+// keep the common case at ~4 s and bound the failure path at ~30 s. The
+// first client that returns wins and the rest are killed; when every
+// client fails, the verdict error is reported (not the last retry's
+// noise), so a dead link still reads as dead. Per-attempt timeout is
+// 30 s. Non-YouTube URLs use one client only (player_client is
+// YouTube-specific; racing six copies of a Pinterest lookup would just
+// burn CPU).
 async function getInfo(url) {
-  let lastError = null;
-  for (const client of YTDLP_CLIENTS) {
-    try {
-      const { stdout } = await runYtDlp([
-        '-j',
-        '--no-playlist',
-        ...baseArgs(client),
-        url,
-      ]);
-      const firstLine = stdout
-        .split('\n')
-        .find((line) => line.trim().startsWith('{'));
-      if (!firstLine) throw Errors.noMedia();
-      return { ...JSON.parse(firstLine), _client: client };
-    } catch (err) {
-      lastError = err;
-      // Verdict errors are final — and no_media is deterministic too. A
-      // client that finds no formats will not differ on the next one, so
-      // retrying all six burns ~2 minutes and the browser gives up first
-      // (60 s frontend timeout), before the resolver's other adapter ever
-      // gets its turn. Stop after the first client and let the caller
-      // fall back.
-      if (isVerdictError(err) || (err && err.code === 'no_media')) {
+  const clients = isYouTubeUrl(url) ? YTDLP_CLIENTS : [YTDLP_CLIENTS[0]];
+  const controller = new AbortController();
+  const runAttempt = (client) =>
+    (async () => {
+      try {
+        const { stdout } = await runYtDlp(
+          ['-j', '--no-playlist', ...baseArgs(client), url],
+          { timeoutMs: 30000, signal: controller.signal }
+        );
+        const firstLine = stdout
+          .split('\n')
+          .find((line) => line.trim().startsWith('{'));
+        if (!firstLine) throw Errors.noMedia();
+        return { ...JSON.parse(firstLine), _client: client };
+      } catch (err) {
+        if (!err || err.code !== 'aborted') {
+          logger.warn(
+            { client, err: err.message },
+            'yt-dlp client failed, trying next'
+          );
+        }
         throw err;
       }
-      logger.warn({ client, err: err.message }, 'yt-dlp client failed, trying next');
-    }
-  }
-  throw lastError || Errors.upstreamError();
+    })();
+
+  return new Promise((resolve, reject) => {
+    let done = false;
+    let remaining = clients.length;
+    const errors = [];
+    const settle = (value, err) => {
+      if (done) return;
+      if (value) {
+        done = true;
+        controller.abort();
+        resolve(value);
+        return;
+      }
+      if (err && err.code !== 'aborted') errors.push(err);
+      if (--remaining === 0) {
+        done = true;
+        // A verdict error is the answer when every client agrees the link
+        // is dead/private/has no formats — report it, not the last
+        // retry's noise.
+        const verdict = errors.find(
+          (e) => isVerdictError(e) || e.code === 'no_media'
+        );
+        if (verdict) return reject(verdict);
+        const last = errors[errors.length - 1];
+        if (last) {
+          logger.warn({ err: last.message }, 'yt-dlp failed on every client');
+          return reject(last);
+        }
+        reject(Errors.upstreamError());
+      }
+    };
+    const attempt = (client) => {
+      runAttempt(client).then(
+        (value) => settle(value, null),
+        (err) => settle(null, err)
+      );
+    };
+    clients.slice(0, 2).forEach(attempt);
+    const wave2 = setTimeout(() => {
+      if (!done) clients.slice(2).forEach(attempt);
+    }, 5000);
+    wave2.unref();
+  });
 }
 
 // Stream a download to an Express response. formatId is a yt-dlp -f selector
@@ -227,7 +389,7 @@ function streamDownload(res, url, formatId, client) {
       if (!res.headersSent) res.status(504).end();
       else res.destroy();
     }
-  }, config.ytdlpTimeoutMs);
+  }, config.ytdlpDownloadTimeoutMs);
   timer.unref();
 
   child.stdout.on('data', (chunk) => {
@@ -353,4 +515,4 @@ async function binaryAvailable() {
   }
 }
 
-module.exports = { runYtDlp, getInfo, streamDownload, downloadToFile, cleanupDownloadFiles, binaryAvailable, cookiesPath, hasCookies, mapYtDlpError, baseArgs, YTDLP_CLIENTS, FORMAT_ID_RE };
+module.exports = { runYtDlp, getInfo, streamDownload, downloadToFile, cleanupDownloadFiles, binaryAvailable, cookiesPath, hasCookies, cookiesStatus, validateCookiesContent, mapYtDlpError, baseArgs, YTDLP_CLIENTS, FORMAT_ID_RE };

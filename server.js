@@ -206,7 +206,7 @@ app.get('/health/ready', async (req, res) => {
     status: ytdlpVersion ? 'ready' : 'degraded',
     checks: {
       ytdlp: ytdlpVersion ? `ok (${ytdlpVersion})` : 'missing',
-      cookies: ytdlp.hasCookies() ? 'configured' : 'not configured',
+      cookies: ytdlp.cookiesStatus(),
       cache: cacheStats(),
       queue: { pending: queue.pending, size: queue.size },
     },
@@ -468,8 +468,14 @@ app.get('/dl', async (req, res) => {
       return res.status(403).json({ success: false, error: 'That download link is not valid.', code: 'forbidden' });
     }
     const cleanUrl = await validateProxyUrl(u);
-    const urlExt = (new URL(cleanUrl).pathname.match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i) || [])[1] || 'mp4';
-    const filename = safeFilename(req.query.name || 'snatcher_media', urlExt.toLowerCase());
+    // The URL often carries no extension (Instagram's CDN links), so the
+    // extension is taken from the signed name the resolver built — the
+    // resolver knows the real type (sniffed when the URL gave no clue).
+    // The URL's own extension still wins when it has one.
+    const urlExtMatch = new URL(cleanUrl).pathname.match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i);
+    const nameExtMatch = String(req.query.name || '').match(/\.([a-z0-9]{2,5})$/i);
+    const fileExt = ((urlExtMatch && urlExtMatch[1]) || (nameExtMatch && nameExtMatch[1]) || 'mp4').toLowerCase();
+    const filename = safeFilename(req.query.name || 'snatcher_media', fileExt);
     // Content-Length, in order: the signed size the resolver knew, a HEAD
     // on the upstream, the GET response's own header. Without one the
     // browser shows an unknown total and no progress.
@@ -492,7 +498,18 @@ app.get('/dl', async (req, res) => {
       maxContentLength: config.maxDownloadBytes,
       headers: { 'User-Agent': 'Snatcher/3.0' },
     });
-    const contentType = upstream.headers['content-type'] || 'application/octet-stream';
+    const upstreamType = upstream.headers['content-type'] || '';
+    // RapidAPI's proxy answers application/octet-stream for everything —
+    // useless. When the upstream type is generic (or missing), say what
+    // the file really is from its extension, which the resolver verified.
+    const typeByExt = {
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+      webp: 'image/webp', gif: 'image/gif', mp4: 'video/mp4',
+      webm: 'video/webm', mov: 'video/quicktime',
+    };
+    const contentType = upstreamType && upstreamType !== 'application/octet-stream'
+      ? upstreamType
+      : typeByExt[fileExt] || 'application/octet-stream';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     if (contentLength) res.setHeader('Content-Length', contentLength);

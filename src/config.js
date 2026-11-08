@@ -36,7 +36,10 @@ const config = {
   ytdlpTimeoutMs: parseInt(process.env.YTDLP_TIMEOUT_MS || '60000', 10),
   // Downloads are different from info lookups: a 2160p merge can take
   // minutes on a slow pipe, and killing it mid-file gives the user a 504
-  // for a download that would have finished. 10 minutes.
+  // for a download that would have finished. 10 minutes. streamDownload
+  // (the live /dl stream) uses this too — a throttled CDN can take a
+  // minute for a 2 MB TikTok file, so the 60 s info timeout must not kill
+  // a download that is still moving.
   ytdlpDownloadTimeoutMs: parseInt(
     process.env.YTDLP_DOWNLOAD_TIMEOUT_MS || String(10 * 60 * 1000),
     10

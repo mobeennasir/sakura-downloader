@@ -159,6 +159,147 @@
     if (statusLine) statusLine.textContent = '';
   }
 
+  // --- download loader ------------------------------------------------------
+  // A Download click used to navigate straight to /dl with no feedback at
+  // all — on a throttled pipe the user stared at a dead page for 30–50 s.
+  // Now the click fetches the file through the loader: a real progress
+  // ring (bytes received vs the signed size), MB numbers, elapsed time,
+  // and a Cancel button. Files over 200 MB skip the loader and navigate
+  // directly: holding a huge file as a blob would eat the phone's memory,
+  // and the browser's own download UI is the right tool for those. Any
+  // fetch failure also falls back to a plain navigation, so the download
+  // still happens. (The save itself is a blob-URL anchor click after the
+  // async fetch — it works in Chrome/Firefox/Safari; the navigation
+  // fallback covers any browser that refuses it.)
+  const DOWNLOAD_LOADER_MAX_BYTES = 200 * 1024 * 1024;
+  const downloadLoader = $('#downloadLoader');
+  const downloadRingFill = $('#downloadRingFill');
+  const downloadName = $('#downloadName');
+  const downloadPercent = $('#downloadPercent');
+  const downloadBytes = $('#downloadBytes');
+  const downloadElapsed = $('#downloadElapsed');
+  const downloadCancel = $('#downloadCancel');
+  const RING_CIRCUMFERENCE = 2 * Math.PI * 30;
+  let downloadAbort = null;
+
+  function formatMB(bytes) {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${bytes} B`;
+  }
+
+  function showDownloadLoader(filename) {
+    if (!downloadLoader) return;
+    downloadLoader.classList.add('is-visible');
+    downloadLoader.setAttribute('aria-hidden', 'false');
+    if (downloadName) downloadName.textContent = filename || 'Downloading…';
+    if (downloadRingFill) downloadRingFill.style.strokeDashoffset = RING_CIRCUMFERENCE;
+    if (downloadPercent) downloadPercent.textContent = '0%';
+    if (downloadBytes) downloadBytes.textContent = '0 MB';
+    if (downloadElapsed) downloadElapsed.textContent = '';
+  }
+
+  function hideDownloadLoader() {
+    if (!downloadLoader) return;
+    downloadLoader.classList.remove('is-visible');
+    downloadLoader.setAttribute('aria-hidden', 'true');
+  }
+
+  function navigateDownload(url) {
+    window.location.assign(url);
+  }
+
+  async function startDownload(url, filename) {
+    // Total size: the signed `s=` in the /dl URL when the resolver knew it.
+    let total = null;
+    try {
+      const s = new URL(url, window.location.origin).searchParams.get('s');
+      if (/^\d+$/.test(s || '')) total = parseInt(s, 10);
+    } catch {
+      // Unparseable URL — fall through to the response header.
+    }
+    if (total && total > DOWNLOAD_LOADER_MAX_BYTES) {
+      navigateDownload(url);
+      return;
+    }
+    const controller = new AbortController();
+    downloadAbort = controller;
+    const started = Date.now();
+    showDownloadLoader(filename);
+    const elapsedTimer = setInterval(() => {
+      if (downloadElapsed) {
+        downloadElapsed.textContent = `${Math.floor((Date.now() - started) / 1000)}s`;
+      }
+    }, 1000);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error(`download failed: ${res.status}`);
+      if (!total) {
+        const len = parseInt(res.headers.get('content-length') || '', 10);
+        if (Number.isFinite(len) && len > 0) total = len;
+      }
+      if (total && total > DOWNLOAD_LOADER_MAX_BYTES) {
+        // Too big to hold as a blob — hand it to the browser instead.
+        hideDownloadLoader();
+        navigateDownload(url);
+        return;
+      }
+      const reader = res.body && res.body.getReader ? res.body.getReader() : null;
+      if (!reader) throw new Error('streaming not supported');
+      const chunks = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (total) {
+          const pct = Math.min(100, Math.round((received / total) * 100));
+          if (downloadPercent) downloadPercent.textContent = `${pct}%`;
+          if (downloadRingFill) {
+            downloadRingFill.style.strokeDashoffset =
+              RING_CIRCUMFERENCE * (1 - received / total);
+          }
+          if (downloadBytes) {
+            downloadBytes.textContent = `${formatMB(received)} of ${formatMB(total)}`;
+          }
+        } else if (downloadBytes) {
+          downloadBytes.textContent = `${formatMB(received)} downloaded`;
+        }
+      }
+      const blob = new Blob(chunks);
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || 'snatcher_media';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      hideDownloadLoader();
+      setStatus('Downloaded.');
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        hideDownloadLoader();
+        setStatus('Download cancelled.');
+      } else {
+        // Any failure falls back to the browser's own download — the file
+        // still arrives, just without the progress card.
+        hideDownloadLoader();
+        navigateDownload(url);
+      }
+    } finally {
+      clearInterval(elapsedTimer);
+      if (downloadAbort === controller) downloadAbort = null;
+    }
+  }
+
+  if (downloadCancel) {
+    downloadCancel.addEventListener('click', () => {
+      if (downloadAbort) downloadAbort.abort();
+    });
+  }
+
   async function postJson(path, body, timeoutMs) {
     const controller = new AbortController();
     currentAbort = controller;
@@ -219,7 +360,11 @@
     return parts.join(' · ');
   }
 
-  function mediaCard(item, index) {
+  // `caption` is the post's caption (batch mode only): when given, the
+  // caption box sits inside the card, below the buttons, so every video
+  // carries its own caption with it. Single mode passes nothing and
+  // keeps the one shared caption box below the grid instead.
+  function mediaCard(item, index, caption) {
     const card = el('article', { class: 'media-card' });
     const preview = el('div', { class: 'preview' });
     // HLS manifests (.m3u8) do not play in a plain <video> element — show
@@ -256,13 +401,16 @@
       href: item.downloadUrl,
       download: item.filename || '',
     }, [icon('download'), document.createTextNode('Download')]);
-    // Merged / converted files are fetched to the server first so the
-    // browser gets an exact size — say so, or the pause looks broken.
-    if (item.ytdlp && (String(item.ytdlp.formatId || '').includes('+') || /\.m3u8(\?|$)/i.test(item.url || ''))) {
-      download.addEventListener('click', () => {
-        setStatus('Getting your file ready — the download starts in a moment.');
-      });
-    }
+    // The click goes through the download loader (real progress ring +
+    // cancel) instead of navigating straight to /dl with no feedback —
+    // on a throttled pipe the user stared at a dead page for 30–50 s.
+    // Merged / converted files take a while before the first byte (the
+    // server fetches them to disk first); the loader's elapsed timer is
+    // the hint there.
+    download.addEventListener('click', (event) => {
+      event.preventDefault();
+      startDownload(item.downloadUrl, item.filename || '');
+    });
     const copy = el('button', { class: 'btn btn--secondary', type: 'button' }, [icon('copy'), document.createTextNode('Copy link')]);
     copy.addEventListener('click', async () => {
       try {
@@ -284,6 +432,10 @@
     actions.appendChild(download);
     actions.appendChild(copy);
     body.appendChild(actions);
+    // Batch mode: the post's caption lives in the card itself, below the
+    // buttons — one per video, with its own Copy button.
+    const cap = caption ? captionSection(caption) : null;
+    if (cap) body.appendChild(cap);
     card.appendChild(body);
     return card;
   }
@@ -381,6 +533,36 @@
 
   function renderBatchResult(container, results) {
     container.textContent = '';
+    // One Download all for the whole batch: every file from every link
+    // that worked, skipping the ones that failed. A failed link never
+    // blocks the rest — it is counted in the note, not in the downloads.
+    const ok = results.filter((r) => r.success && r.mediaItems && r.mediaItems.length > 0);
+    const allItems = ok.flatMap((r) => r.mediaItems);
+    const failed = results.length - ok.length;
+    if (allItems.length > 1) {
+      const head = el('div', { class: 'results-head' });
+      head.appendChild(el('h2', { text: 'Batch downloads' }));
+      const note = failed > 0
+        ? `${allItems.length} files from ${ok.length} link${ok.length === 1 ? '' : 's'} · ${failed} link${failed === 1 ? '' : 's'} failed — skipped`
+        : `${allItems.length} files from ${ok.length} link${ok.length === 1 ? '' : 's'}`;
+      head.appendChild(el('p', { text: note }));
+      const all = el('button', { class: 'btn btn--secondary', type: 'button' }, [icon('download'), document.createTextNode('Download all')]);
+      all.addEventListener('click', () => {
+        allItems.forEach((item, i) => {
+          setTimeout(() => {
+            const a = document.createElement('a');
+            a.href = item.downloadUrl;
+            a.download = item.filename || '';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+          }, i * 450);
+        });
+        setStatus('Downloading all — your browser may ask to allow multiple downloads.');
+      });
+      head.appendChild(all);
+      container.appendChild(head);
+    }
     results.forEach((result) => {
       const group = el('div', { class: 'batch-group' });
       group.appendChild(el('p', { class: 'batch-url', text: result.url }));
@@ -390,10 +572,8 @@
         head.appendChild(el('p', { text: `${result.mediaItems.length} item${result.mediaItems.length === 1 ? '' : 's'}` }));
         group.appendChild(head);
         const grid = el('div', { class: 'media-grid' });
-        result.mediaItems.forEach((item, i) => grid.appendChild(mediaCard(item, i)));
+        result.mediaItems.forEach((item, i) => grid.appendChild(mediaCard(item, i, result.caption)));
         group.appendChild(grid);
-        const caption = captionSection(result.caption);
-        if (caption) group.appendChild(caption);
       } else {
         const empty = el('div', { class: 'empty-state' });
         empty.appendChild(el('h3', { text: 'Could not grab this one.' }));
@@ -432,12 +612,7 @@
       try {
         const conv = await postJson('/api/youtube/convert', { url, formatId: format.id }, 120000);
         clearStatus();
-        const a = document.createElement('a');
-        a.href = conv.data.downloadUrl;
-        a.download = conv.data.filename || '';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        await startDownload(conv.data.downloadUrl, conv.data.filename || '');
         saveRecent(url, 'youtube', info.title);
       } catch (err) {
         goToErrorPage(err, url);

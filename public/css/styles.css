@@ -710,9 +710,17 @@ video {
 }
 
 .media-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-md);
+}
+
+/* Flexbox rows: cards grow equally to fill each row, capped so 3 fit per
+   row on desktop. The cap also keeps a short last row the same width as
+   the rows above it instead of stretching one card full-width. */
+.media-grid > .media-card {
+  flex: 1 1 300px;
+  max-width: calc((100% - 2 * var(--space-md)) / 3);
 }
 
 .media-card {
@@ -1115,6 +1123,98 @@ video {
   font-size: 0.875rem;
 }
 
+/* Download loader: a compact frosted card, bottom-centre, with a real
+   progress ring — the ring fills by bytes received, not by time. Not the
+   galaxy: no orbit, no planet, no satellite, no full-screen frost. The
+   card is small and stays out of the way of the results; on mobile it
+   stretches full-width with a margin. */
+.download-loader {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-lg);
+  z-index: 101;
+  transform: translate(-50%, 16px);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: min(420px, calc(100% - 2 * var(--space-md)));
+  padding: var(--space-sm) var(--space-md);
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--color-rule-2);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 200ms var(--ease-out), visibility 200ms var(--ease-out), transform 200ms var(--ease-out);
+}
+
+.download-loader.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+.download-ring {
+  flex: none;
+  width: 56px;
+  height: 56px;
+  transform: rotate(-90deg);
+}
+
+.download-ring-track {
+  fill: none;
+  stroke: var(--color-rule-2);
+  stroke-width: 5;
+}
+
+.download-ring-fill {
+  fill: none;
+  stroke: var(--color-accent-2);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-dasharray: 188.5;
+  stroke-dashoffset: 188.5;
+}
+
+.download-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.download-name {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+
+.download-numbers {
+  margin: 2px 0 0;
+  font-family: var(--font-outlier);
+  font-size: 0.875rem;
+  color: var(--color-muted);
+}
+
+.download-numbers span:first-child {
+  font-weight: 600;
+  color: var(--color-accent-2);
+}
+
+.download-elapsed {
+  margin: 0;
+  font-family: var(--font-outlier);
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+.download-cancel {
+  flex: none;
+}
+
 /* No backdrop-filter, no glass: the same surfaces fall back to their
    solid colours, and the loading screen to plain paper. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -1126,7 +1226,8 @@ video {
   .media-card,
   .howto,
   .caption-box,
-  .url-bar {
+  .url-bar,
+  .download-loader {
     background: var(--color-cotton);
   }
 
@@ -1277,9 +1378,12 @@ video {
 
 /* Responsive */
 @media (max-width: 1024px) {
-  .platform-grid,
-  .media-grid {
+  .platform-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .media-grid > .media-card {
+    max-width: calc((100% - var(--space-md)) / 2);
   }
 }
 
@@ -1346,11 +1450,16 @@ video {
   .video-summary img {
     width: 100%;
   }
+
+  /* Small screens: one card per row, full width, stacked. */
+  .media-grid > .media-card {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
 }
 
 @media (max-width: 480px) {
-  .platform-grid,
-  .media-grid {
+  .platform-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

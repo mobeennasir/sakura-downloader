@@ -32,6 +32,24 @@
   <p class="loading-text" id="loadingText">Snatching…</p>
   <p class="loading-elapsed" id="loadingElapsed"></p>
 </div>
+<!-- Download loader: a small frosted card with a real progress ring, shown
+  while a file downloads after a Download click. Deliberately not the
+  galaxy: the galaxy is the resolve screen (full-page, orbit + planet);
+  this is a download gauge (ring + MB + cancel), so the two never look
+  alike. It starts invisible (opacity/visibility, not display) so a failed
+  script never leaves it stuck on screen. -->
+<div class="download-loader" id="downloadLoader" aria-hidden="true" role="status">
+  <svg class="download-ring" viewBox="0 0 72 72" aria-hidden="true">
+    <circle class="download-ring-track" cx="36" cy="36" r="30" />
+    <circle class="download-ring-fill" id="downloadRingFill" cx="36" cy="36" r="30" />
+  </svg>
+  <div class="download-info">
+    <p class="download-name" id="downloadName">Downloading…</p>
+    <p class="download-numbers"><span id="downloadPercent">0%</span> · <span id="downloadBytes">0 MB</span></p>
+    <p class="download-elapsed" id="downloadElapsed"></p>
+  </div>
+  <button class="btn btn--secondary download-cancel" id="downloadCancel" type="button">Cancel</button>
+</div>
 <script src="/js/snatcher.js" defer></script>
 </body>
 </html>

@@ -13,6 +13,7 @@
 // these items.
 
 const crypto = require('node:crypto');
+const axios = require('axios');
 const { igdl, ttdl, fbdown, twitter, pinterest } = require('btch-downloader');
 const config = require('./config');
 const logger = require('./logger');
@@ -39,6 +40,52 @@ function guessTypeFromUrl(url) {
   if (VIDEO_EXTS.has(ext)) return 'video';
   if (IMAGE_EXTS.has(ext)) return 'image';
   return 'video';
+}
+
+// Magic bytes → the file's real type. igdl hands back extension-less
+// proxy URLs (d.rapidcdn.app/v2?token=...), so the extension guess calls
+// every image a video and the file is saved as .mp4 (the player shows
+// 0:00 for a JPEG wearing an mp4 name). The first bytes never lie.
+function classifyMediaBytes(buf) {
+  if (!buf || buf.length < 12) return null;
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { type: 'image', ext: 'jpg' };
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { type: 'image', ext: 'png' };
+  if (b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP') return { type: 'image', ext: 'webp' };
+  if (b.toString('ascii', 0, 4) === 'GIF8') return { type: 'image', ext: 'gif' };
+  if (b.toString('ascii', 4, 8) === 'ftyp') return { type: 'video', ext: 'mp4' };
+  return null;
+}
+
+// Read the first 16 bytes of a URL and classify the real file. Only for
+// extension-less URLs. Streams, never downloads the whole file: a Range
+// request returns 16 bytes, and if the server ignores Range the stream is
+// destroyed after the first chunk. Best effort — null on any failure, and
+// the caller keeps its guessed type.
+async function sniffMediaType(url, timeoutMs = 8000) {
+  try {
+    const res = await axios.get(url, {
+      responseType: 'stream',
+      timeout: timeoutMs,
+      maxRedirects: 5,
+      headers: { Range: 'bytes=0-15', 'User-Agent': 'Snatcher/3.0' },
+      validateStatus: (s) => s === 200 || s === 206,
+    });
+    const chunks = [];
+    let total = 0;
+    try {
+      for await (const chunk of res.data) {
+        chunks.push(chunk);
+        total += chunk.length;
+        if (total >= 16) break;
+      }
+    } finally {
+      if (res.data && typeof res.data.destroy === 'function') res.data.destroy();
+    }
+    return classifyMediaBytes(Buffer.concat(chunks));
+  } catch {
+    return null;
+  }
 }
 
 function normalizeItem(raw, fallbackTitle) {
@@ -90,8 +137,10 @@ function pickCaption(...candidates) {
 // text (igdl for Instagram, fbdown for Facebook): ask yt-dlp for the post's
 // description. It runs alongside the primary fetch, has a short timeout,
 // and never fails the download — a missing caption just means no caption
-// box, as before.
-const CAPTION_FETCH_TIMEOUT_MS = 15000;
+// box, as before. 25 s, not 15 s: on the 0.1 vCPU free tier the yt-dlp
+// spawn + extractor alone often takes longer than 15 s, so the caption
+// fetch kept timing out and most Facebook videos showed no caption.
+const CAPTION_FETCH_TIMEOUT_MS = 25000;
 async function fetchCaption(url) {
   try {
     const info = await withTimeout(
@@ -233,6 +282,21 @@ async function resolveInstagram(url) {
   }
 
   items = dedupeByUrl(items);
+  // igdl's URLs are extension-less proxy links, so the extension guess
+  // called every image a video and the file was saved as .mp4 (the player
+  // showed 0:00 for a JPEG wearing an mp4 name). Sniff the real bytes for
+  // those items and fix the type + extension. The sniff is authoritative,
+  // so yt-dlp video items (also extension-less) keep their video type —
+  // the extra request is one per item, in parallel.
+  const ambiguous = items.filter((item) => !extFromUrl(item.url));
+  if (ambiguous.length > 0) {
+    const found = await Promise.all(ambiguous.map((item) => sniffMediaType(item.url)));
+    found.forEach((sniffed, i) => {
+      if (!sniffed) return;
+      ambiguous[i].type = sniffed.type;
+      ambiguous[i].ext = sniffed.ext;
+    });
+  }
   if (items.length === 0) throw Errors.noMedia();
   if (!caption) caption = await captionPromise;
   return { title, thumbnail: items[0].thumbnail || null, items, caption };
@@ -242,6 +306,75 @@ async function resolveInstagram(url) {
 // Pinterest — yt-dlp primary (Pinterest extractor: pins, images + video, high
 // quality), btch fallback. The old RapidAPI path is gone with the leaked key.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Pinterest page scrape — the alternative when yt-dlp finds no formats.
+// yt-dlp's Pinterest extractor works from some IPs and not others (Koyeb's
+// datacenter IP gets a page with no video data — "No media in that link"),
+// and btch's Pinterest handler returns the thumbnail only (video_url null)
+// for video pins. The pin page itself still carries a progressive MP4:
+// https://v1.pinimg.com/videos/iht/expMp4/<hash>_<width>w.mp4 — one plain
+// GET with a browser UA finds it. No third-party API, no key: the page is
+// the source. Runs only after yt-dlp fails, before btch, so image pins
+// still go through btch as before.
+const PINTEREST_MP4_RE =
+  /https:\/\/v1\.pinimg\.com\/videos\/[A-Za-z0-9\/_.\-]*?expMp4\/[A-Za-z0-9\/_.\-]*?_(\d+)w\.mp4/g;
+const PINTEREST_THUMB_RE =
+  /https:\/\/i\.pinimg\.com\/originals\/[A-Za-z0-9\/_.\-]+\.(?:jpg|jpeg|png|webp)/;
+
+function decodeHtmlEntities(text) {
+  return String(text || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+// Pure: pull the video (widest progressive MP4), title and thumbnail out of
+// a pin page's HTML. Returns null when the page carries no video.
+function extractPinterestVideo(html) {
+  if (!html || typeof html !== 'string') return null;
+  // Pinterest embeds JSON with escaped slashes (https:\/\/...) — unescape
+  // once so one regex covers both plain and embedded URLs.
+  const text = html.replace(/\\\//g, '/');
+  let best = null;
+  for (const match of text.matchAll(PINTEREST_MP4_RE)) {
+    const width = parseInt(match[1], 10);
+    if (!best || width > best.width) best = { videoUrl: match[0], width };
+  }
+  if (!best) return null;
+  const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+  let title = titleMatch ? decodeHtmlEntities(titleMatch[1]).trim() : null;
+  // The page title is "Pin title | tag, tag, ..." — drop the trailing tag
+  // segment, keep the pin title (which itself may contain " | ").
+  if (title) title = title.replace(/ \| [^|]*$/, '').trim() || null;
+  const thumbMatch = text.match(PINTEREST_THUMB_RE);
+  return {
+    videoUrl: best.videoUrl,
+    width: best.width,
+    title,
+    thumbnail: thumbMatch ? thumbMatch[0] : null,
+  };
+}
+
+async function fetchPinterestViaScrape(url, timeoutMs) {
+  const { data } = await axios.get(url, {
+    timeout: timeoutMs,
+    maxContentLength: 8 * 1024 * 1024,
+    maxRedirects: 5,
+    responseType: 'text',
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5',
+    },
+    validateStatus: (status) => status >= 200 && status < 400,
+  });
+  return extractPinterestVideo(data);
+}
+
 async function fetchPinterestViaBtch(url, timeoutMs) {
   const data = await withTimeout(pinterest(url), timeoutMs, 'Pinterest');
   let pin = data && data.result ? data.result : null;
@@ -272,7 +405,38 @@ async function resolvePinterest(url) {
     ) {
       throw err;
     }
-    logger.warn({ err: err.message }, 'yt-dlp Pinterest failed, trying btch');
+    logger.warn({ err: err.message }, 'yt-dlp Pinterest failed, trying page scrape');
+  }
+
+  // yt-dlp found no formats (its usual failure on a flagged datacenter IP)
+  // — try the pin page itself before btch, which only returns the image
+  // for video pins (video_url null).
+  try {
+    const scraped = await fetchPinterestViaScrape(url, config.upstreamTimeoutMs);
+    if (scraped && scraped.videoUrl) {
+      const items = [
+        normalizeItem(
+          {
+            url: scraped.videoUrl,
+            thumbnail: scraped.thumbnail,
+            type: 'video',
+            title: scraped.title,
+            quality: scraped.width ? `${scraped.width}p` : null,
+          },
+          'Pinterest video'
+        ),
+      ].filter(Boolean);
+      if (items.length > 0) {
+        return {
+          title: scraped.title || 'Pinterest video',
+          thumbnail: scraped.thumbnail || null,
+          items,
+          caption: pickCaption(scraped.title),
+        };
+      }
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Pinterest page scrape failed, trying btch');
   }
 
   // Pinterest's scraper flakes: it sometimes returns nothing for a pin it
@@ -353,6 +517,67 @@ async function resolveTikTok(url) {
     }
   }
   throw Errors.noMedia();
+}
+
+// ---------------------------------------------------------------------------
+// Twitter/X page scrape — photo tweets. yt-dlp's Twitter extractor only
+// handles videos ("No video could be found in this tweet" / "Media #1 is
+// not a video" for a photo post), and btch's twitter handler finds no
+// media URL for them either. The tweet page itself carries the photos:
+// https://pbs.twimg.com/media/<id>.jpg — one plain GET with a browser UA
+// finds them, plus the tweet text in og:description for the caption.
+// Runs only after both video paths fail. Guard: when the page carries
+// video.twimg.com URLs it is a VIDEO tweet — the video paths already tried
+// and failed, so the scrape must not hand back the video's poster still
+// as if it were the media. No third-party API, no key: the page is the
+// source.
+const TWITTER_MEDIA_RE =
+  /https:\/\/pbs\.twimg\.com\/media\/([A-Za-z0-9_-]+)\.(jpg|jpeg|png|webp)/g;
+const TWITTER_VIDEO_RE = /https:\/\/video\.twimg\.com\//;
+
+function extractTwitterPhotos(html) {
+  if (!html || typeof html !== 'string') return null;
+  const text = html.replace(/\\\//g, '/');
+  // A video tweet's page carries its poster stills on pbs.twimg.com too —
+  // the video paths already tried and failed, so do not hand the poster
+  // back as the media.
+  if (TWITTER_VIDEO_RE.test(text)) return null;
+  const byId = new Map();
+  for (const match of text.matchAll(TWITTER_MEDIA_RE)) {
+    if (!byId.has(match[1])) {
+      byId.set(match[1], `https://pbs.twimg.com/media/${match[1]}.${match[2]}`);
+    }
+  }
+  if (byId.size === 0) return null;
+  const meta = (property) => {
+    const m = text.match(
+      new RegExp(`<meta property="${property}" content="([^"]*)"`, 'i')
+    );
+    return m ? decodeHtmlEntities(m[1]).trim() || null : null;
+  };
+  return {
+    photos: [...byId.values()],
+    title: meta('og:title'),
+    caption: meta('og:description'),
+  };
+}
+
+async function fetchTwitterViaScrape(url, timeoutMs) {
+  const { data } = await axios.get(url, {
+    timeout: timeoutMs,
+    maxContentLength: 4 * 1024 * 1024,
+    maxRedirects: 5,
+    responseType: 'text',
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.5',
+    },
+    validateStatus: (status) => status >= 200 && status < 400,
+  });
+  return extractTwitterPhotos(data);
 }
 
 // ---------------------------------------------------------------------------
@@ -450,10 +675,39 @@ async function resolveTwitter(url) {
     throw new Error('No media URL found. The post might be private, restricted, or unavailable.');
   } catch (err) {
     logger.warn({ err: err.message }, 'btch twitter failed, trying yt-dlp for Twitter');
-    const info = await ytdlp.getInfo(url);
-    const items = ytdlpInfoToItems(info, 'Twitter video', url);
-    if (items.length === 0) throw Errors.noMedia();
-    return { title: info.title || 'Twitter video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description, info.title) };
+    let ytdlpErr = null;
+    try {
+      const info = await ytdlp.getInfo(url);
+      const items = ytdlpInfoToItems(info, 'Twitter video', url);
+      if (items.length === 0) throw Errors.noMedia();
+      return { title: info.title || 'Twitter video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description, info.title) };
+    } catch (e) {
+      ytdlpErr = e;
+      logger.warn({ err: e.message }, 'yt-dlp Twitter failed, trying page scrape');
+    }
+    // Photo tweets have no video: yt-dlp and btch both fail on them. The
+    // tweet page itself carries the photos — that is the alternative.
+    try {
+      const scraped = await fetchTwitterViaScrape(url, config.upstreamTimeoutMs);
+      if (scraped && scraped.photos.length > 0) {
+        const items = scraped.photos
+          .map((photoUrl) =>
+            normalizeItem({ url: photoUrl, type: 'image', title: scraped.title }, 'X photo')
+          )
+          .filter(Boolean);
+        if (items.length > 0) {
+          return {
+            title: scraped.title || 'X post',
+            thumbnail: items[0].url,
+            items,
+            caption: pickCaption(scraped.caption),
+          };
+        }
+      }
+    } catch (scrapeErr) {
+      logger.warn({ err: scrapeErr.message }, 'Twitter page scrape failed');
+    }
+    throw ytdlpErr || err;
   }
 }
 
@@ -762,5 +1016,11 @@ module.exports = {
   captionNameBase,
   safeFilename,
   urlFingerprint,
+  extractPinterestVideo,
+  fetchPinterestViaScrape,
+  extractTwitterPhotos,
+  fetchTwitterViaScrape,
+  classifyMediaBytes,
+  sniffMediaType,
   RESOLVERS,
 };
