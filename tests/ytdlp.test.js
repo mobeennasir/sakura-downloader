@@ -1,5 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { mapYtDlpError } from '../src/yt-dlp.js';
+import { mapYtDlpError, baseArgs, YTDLP_CLIENTS } from '../src/yt-dlp.js';
+
+// Client rotation is the free fallback against YouTube's datacenter-IP bot
+// check: when one player client is told to sign in, the next one is tried.
+describe('YTDLP_CLIENTS', () => {
+  it('tries six clients in order, tv_embedded first', () => {
+    expect(YTDLP_CLIENTS).toEqual([
+      'tv_embedded',
+      'android',
+      'ios',
+      'mweb',
+      'web',
+      'web_safari',
+    ]);
+  });
+
+  it('skips the webpage fetch where the bot check usually triggers', () => {
+    const args = baseArgs('tv_embedded');
+    expect(args).toContain('youtube:player_skip=webpage');
+    expect(args).toContain('youtube:player_client=tv_embedded');
+  });
+});
 
 // yt-dlp's stderr is the only signal for what went wrong. A dead video must
 // read as "that link went nowhere" (404), never as "the platform stumbled"

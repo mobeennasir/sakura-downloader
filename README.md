@@ -53,7 +53,7 @@ cd sakura-downloader
 npm ci
 cp .env.example .env   # optional; all settings have defaults
 npm start              # http://localhost:3000
-npm test               # vitest + supertest suite (71 tests)
+npm test               # vitest + supertest suite (73 tests)
 ```
 
 ## How it works
@@ -69,9 +69,11 @@ paste a link
 ```
 
 YouTube uses yt-dlp's `tv_embedded` player client (full format range) with
-`android`, `ios` and `mweb` as fallbacks — datacentre IPs get bot-checked,
-so the retry chain matters. If YouTube still asks the server to sign in, set
-`YTDLP_COOKIES` (a Koyeb secret) to the contents of a Netscape cookies.txt
+`android`, `ios`, `mweb`, `web` and `web_safari` as fallbacks, and skips the
+webpage fetch (`player_skip=webpage`) where the bot check usually triggers —
+datacentre IPs get bot-checked, so the retry chain matters. If YouTube still
+asks the server to sign in, set `YTDLP_COOKIES` (a Koyeb secret) to the
+contents of a Netscape cookies.txt
 exported for youtube.com only, or `YTDLP_COOKIES_FILE` to a cookies.txt path
 for local runs. The cookies are only ever handed to yt-dlp, never logged, and
 `/health/ready` reports whether any are configured. Pinterest videos arrive as
@@ -144,9 +146,10 @@ repos — after pushing, trigger the build manually in the Koyeb dashboard.
   bot-checked or blocked, and private or login-walled posts never work.
   Failures surface as plain error messages, never as a fake success.
 - YouTube quality depends on the player client that answers; the app tries
-  `tv_embedded` first (full range) and falls back to `android`, `ios` and
-  `mweb`. On a datacentre IP all four can be bot-checked; a logged-in
-  `YTDLP_COOKIES` session is the reliable way past that (see above).
+  `tv_embedded` first (full range) and falls back to `android`, `ios`,
+  `mweb`, `web` and `web_safari`. On a datacentre IP all six can be
+  bot-checked; a logged-in `YTDLP_COOKIES` session is the reliable way past
+  that (see above).
 - Only download media you have the right to keep.
 
 ## License

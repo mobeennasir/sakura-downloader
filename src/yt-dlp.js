@@ -15,11 +15,14 @@ const FORMAT_ID_RE = /^[0-9a-zA-Z+_-]+$/;
 
 // Player clients, in order. tv_embedded returns the full format range
 // (2160p down) and gets past the bot check; android is the reliable fallback
-// (360p combined). ios and mweb are further fallbacks — Koyeb's IP has been
-// seen blocked on the first two, so the retry keeps going. A chain in one
-// call does not work — yt-dlp keeps only one client's result — so the code
-// retries client by client instead.
-const YTDLP_CLIENTS = ['tv_embedded', 'android', 'ios', 'mweb'];
+// (360p combined). ios, mweb, web and web_safari are further fallbacks —
+// Koyeb's IP has been seen blocked on the first two, so the retry keeps
+// going. A chain in one call does not work — yt-dlp keeps only one
+// client's result — so the code retries client by client instead.
+// player_skip=webpage skips the initial webpage fetch, where the "sign in
+// to confirm you're not a bot" page usually triggers; the formats and
+// description come from the player response instead.
+const YTDLP_CLIENTS = ['tv_embedded', 'android', 'ios', 'mweb', 'web', 'web_safari'];
 
 // Login cookies for yt-dlp (--cookies), when configured. The content comes
 // from the YTDLP_COOKIES env var (a Koyeb secret) and is written once to a
@@ -64,6 +67,8 @@ function baseArgs(client) {
   const args = [
     '--extractor-args',
     `youtube:player_client=${client}`,
+    '--extractor-args',
+    'youtube:player_skip=webpage',
     '--no-warnings',
     '--socket-timeout',
     '15',
@@ -320,4 +325,4 @@ async function binaryAvailable() {
   }
 }
 
-module.exports = { runYtDlp, getInfo, streamDownload, downloadToFile, cleanupDownloadFiles, binaryAvailable, cookiesPath, hasCookies, mapYtDlpError, FORMAT_ID_RE };
+module.exports = { runYtDlp, getInfo, streamDownload, downloadToFile, cleanupDownloadFiles, binaryAvailable, cookiesPath, hasCookies, mapYtDlpError, baseArgs, YTDLP_CLIENTS, FORMAT_ID_RE };
