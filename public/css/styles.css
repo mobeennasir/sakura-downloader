@@ -1156,6 +1156,24 @@ video {
   transform: translate(-50%, 0);
 }
 
+/* While no byte has arrived yet the ring pulses instead of sitting at a
+   flat 0% — the server is still fetching/converting, not stuck. (The
+   prefers-reduced-motion block at the end of this file stills it.) */
+.download-loader.is-waiting .download-ring-fill {
+  animation: download-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes download-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
 .download-ring {
   flex: none;
   width: 56px;

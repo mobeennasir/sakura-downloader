@@ -32,6 +32,12 @@ const { FORMAT_ID_RE } = ytdlp;
 const { cachedResolve, cacheStats, queue } = require('./src/cache');
 
 const app = express();
+// Asset version: the package version rides on the CSS/JS URLs as ?v=,
+// so a deploy can never serve a stale cached stylesheet or script again.
+// (2026-11-08: the live site kept showing the old single-column layout
+// after the flexbox push because the browser held the old styles.css.)
+// Bump the version in package.json on every push.
+app.locals.assetVersion = require('./package.json').version;
 app.set('trust proxy', 1); // Koyeb terminates TLS in front of us.
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -155,9 +161,14 @@ function withDownloadLinks(platform, title, items, sourceUrl, caption) {
   const base =
     captionBase ||
     `${title || platform} ${sourceUrl ? urlFingerprint(sourceUrl) : ''}`.trim();
+  // Fallback when the base sanitises to nothing (a caption/title in a
+  // non-Latin script): platform + link fingerprint, so the file is still
+  // distinct instead of a bare "snatcher.mp4".
+  const fallback = `${platform} ${sourceUrl ? urlFingerprint(sourceUrl) : ''}`.trim();
   return items.map((item, i) => {
     const filename = safeFilename(base, item.ext, {
       tag: items.length > 1 ? String(i + 1) : undefined,
+      fallback,
     });
     let downloadUrl;
     if (item.ytdlp && item.ytdlp.url && item.ytdlp.formatId) {

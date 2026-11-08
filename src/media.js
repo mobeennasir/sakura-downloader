@@ -210,7 +210,18 @@ function safeFilename(title, ext, opts = {}) {
   const suffix = suffixParts.filter(Boolean).join(' ');
   const room = Math.max(0, FILENAME_MAX - (suffix ? suffix.length + 1 : 0));
   let head = base.slice(0, room).replace(/[_-]+$/, '');
-  if (!head) head = 'snatcher';
+  // A title in a non-Latin script (Urdu, Arabic, Chinese) sanitises to
+  // nothing — the ASCII-only strip is required (HTTP headers cannot carry
+  // those bytes) — so fall back to the caller's platform + fingerprint
+  // instead of a bare "snatcher.mp4" that collides with every other one.
+  if (!head) {
+    head = String(opts.fallback || 'snatcher')
+      .replace(/[^\w\s\[\]-]/g, '')
+      .trim()
+      .replace(/\s+/g, '_')
+      .slice(0, room)
+      .replace(/[_-]+$/, '') || 'snatcher';
+  }
   return `${head}${suffix ? ` ${suffix}` : ''}.${useExt}`;
 }
 
@@ -342,6 +353,18 @@ function extractPinterestVideo(html) {
     const width = parseInt(match[1], 10);
     if (!best || width > best.width) best = { videoUrl: match[0], width };
   }
+  if (!best) {
+    // Not every pin's video is an expMp4 with a width suffix — take any
+    // progressive MP4 under /videos/ instead of giving up (and handing
+    // btch the thumbnail). HLS manifests (.m3u8) are deliberately not
+    // matched: they are playlists, not files, and the proxy cannot turn
+    // one into an mp4 without a yt-dlp format id (yt-dlp already failed
+    // on this pin).
+    const generic = text.match(
+      /https:\/\/v1\.pinimg\.com\/videos\/[A-Za-z0-9\/_.\-]*?\.mp4/
+    );
+    if (generic) best = { videoUrl: generic[0], width: null };
+  }
   if (!best) return null;
   const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
   let title = titleMatch ? decodeHtmlEntities(titleMatch[1]).trim() : null;
@@ -372,7 +395,14 @@ async function fetchPinterestViaScrape(url, timeoutMs) {
     },
     validateStatus: (status) => status >= 200 && status < 400,
   });
-  return extractPinterestVideo(data);
+  const result = extractPinterestVideo(data);
+  if (!result) {
+    // No video in the page at all — log the page size so the next
+    // diagnosis can tell a challenge/block page (tiny) from a pin whose
+    // video simply is not a progressive MP4 (full page, no match).
+    logger.warn({ bytes: data.length }, 'Pinterest page scrape found no video');
+  }
+  return result;
 }
 
 async function fetchPinterestViaBtch(url, timeoutMs) {
@@ -436,7 +466,10 @@ async function resolvePinterest(url) {
       }
     }
   } catch (err) {
-    logger.warn({ err: err.message }, 'Pinterest page scrape failed, trying btch');
+    logger.warn(
+      { err: err.message, status: err.response && err.response.status },
+      'Pinterest page scrape failed, trying btch'
+    );
   }
 
   // Pinterest's scraper flakes: it sometimes returns nothing for a pin it

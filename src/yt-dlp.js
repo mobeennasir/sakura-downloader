@@ -290,13 +290,15 @@ function mapYtDlpError(stderr) {
 // IP — ~18 s per client), and the browser gives up at 60 s; racing all
 // six at once fixed that but slowed the winner ~3x (4 s alone, 12 s in a
 // six-way race — six Python processes fighting over one IP). Two waves
-// keep the common case at ~4 s and bound the failure path at ~30 s. The
+// keep the common case at ~4 s and bound the failure path at ~15 s. The
 // first client that returns wins and the rest are killed; when every
 // client fails, the verdict error is reported (not the last retry's
 // noise), so a dead link still reads as dead. Per-attempt timeout is
-// 30 s. Non-YouTube URLs use one client only (player_client is
-// YouTube-specific; racing six copies of a Pinterest lookup would just
-// burn CPU).
+// 15 s. And when BOTH wave-1 clients time out, the IP is being throttled
+// — the other four would hang the same way, so the race stops there with
+// a clear throttling error instead of burning another ~20 s. Non-YouTube
+// URLs use one client only (player_client is YouTube-specific; racing six
+// copies of a Pinterest lookup would just burn CPU).
 async function getInfo(url) {
   const clients = isYouTubeUrl(url) ? YTDLP_CLIENTS : [YTDLP_CLIENTS[0]];
   const controller = new AbortController();
@@ -305,7 +307,7 @@ async function getInfo(url) {
       try {
         const { stdout } = await runYtDlp(
           ['-j', '--no-playlist', ...baseArgs(client), url],
-          { timeoutMs: 30000, signal: controller.signal }
+          { timeoutMs: 15000, signal: controller.signal }
         );
         const firstLine = stdout
           .split('\n')
@@ -327,13 +329,31 @@ async function getInfo(url) {
     let done = false;
     let remaining = clients.length;
     const errors = [];
-    const settle = (value, err) => {
+    const wave1 = new Set(clients.slice(0, 2));
+    let wave1Timeouts = 0;
+    const settle = (value, err, client) => {
       if (done) return;
       if (value) {
         done = true;
         controller.abort();
         resolve(value);
         return;
+      }
+      // Both wave-1 clients timed out: the platform is throttling this
+      // server's IP, and wave 2 would hang the same way. Stop now with a
+      // clear message instead of making the user wait out every client.
+      if (err && err.code === 'timeout' && wave1.has(client)) {
+        wave1Timeouts += 1;
+        if (wave1Timeouts >= 2) {
+          done = true;
+          clearTimeout(wave2Timer);
+          controller.abort();
+          return reject(
+            Errors.rateLimited(
+              'YouTube is throttling this server right now. Try again in a few minutes.'
+            )
+          );
+        }
       }
       if (err && err.code !== 'aborted') errors.push(err);
       if (--remaining === 0) {
@@ -355,15 +375,15 @@ async function getInfo(url) {
     };
     const attempt = (client) => {
       runAttempt(client).then(
-        (value) => settle(value, null),
-        (err) => settle(null, err)
+        (value) => settle(value, null, client),
+        (err) => settle(null, err, client)
       );
     };
     clients.slice(0, 2).forEach(attempt);
-    const wave2 = setTimeout(() => {
+    const wave2Timer = setTimeout(() => {
       if (!done) clients.slice(2).forEach(attempt);
     }, 5000);
-    wave2.unref();
+    wave2Timer.unref();
   });
 }
 

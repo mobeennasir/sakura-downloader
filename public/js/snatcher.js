@@ -191,11 +191,16 @@
   function showDownloadLoader(filename) {
     if (!downloadLoader) return;
     downloadLoader.classList.add('is-visible');
+    // Waiting for the first byte (the server is still fetching or
+    // converting the file): say so and pulse the ring, instead of a flat
+    // 0% that reads as stuck — on a throttled pipe the first byte can
+    // take 10–20 s to arrive.
+    downloadLoader.classList.add('is-waiting');
     downloadLoader.setAttribute('aria-hidden', 'false');
     if (downloadName) downloadName.textContent = filename || 'Downloading…';
     if (downloadRingFill) downloadRingFill.style.strokeDashoffset = RING_CIRCUMFERENCE;
     if (downloadPercent) downloadPercent.textContent = '0%';
-    if (downloadBytes) downloadBytes.textContent = '0 MB';
+    if (downloadBytes) downloadBytes.textContent = 'Getting your file ready…';
     if (downloadElapsed) downloadElapsed.textContent = '';
   }
 
@@ -253,6 +258,8 @@
         if (done) break;
         chunks.push(value);
         received += value.length;
+        // First byte arrived: the wait is over, switch to real progress.
+        if (downloadLoader) downloadLoader.classList.remove('is-waiting');
         if (total) {
           const pct = Math.min(100, Math.round((received / total) * 100));
           if (downloadPercent) downloadPercent.textContent = `${pct}%`;

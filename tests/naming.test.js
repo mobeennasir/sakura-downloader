@@ -54,4 +54,18 @@ describe('safeFilename', () => {
   it('falls back to a plain name when there is no caption, title or tag', () => {
     expect(safeFilename(null, 'mp4', {})).toBe('snatcher.mp4');
   });
+
+  it('uses the caller fallback when a non-Latin title sanitises to nothing', () => {
+    // Urdu/Arabic/Chinese titles cannot go in an HTTP header, so the
+    // ASCII strip empties them — the file must still get a distinct name
+    // (platform + link fingerprint), not a bare "snatcher.mp4".
+    expect(
+      safeFilename('انسان کا دل کتنا بڑا ہونا چاہیے؟', 'mp4', {
+        fallback: 'TikTok 03dfcc53',
+      })
+    ).toBe('TikTok_03dfcc53.mp4');
+    expect(
+      safeFilename('انسان کا دل کتنا بڑا ہونا چاہیے؟', 'mp4', {})
+    ).toBe('snatcher.mp4');
+  });
 });

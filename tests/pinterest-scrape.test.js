@@ -40,4 +40,16 @@ describe('extractPinterestVideo', () => {
     expect(extractPinterestVideo('')).toBeNull();
     expect(extractPinterestVideo(null)).toBeNull();
   });
+
+  it('falls back to any progressive MP4 under /videos/ when there is no expMp4 width suffix', () => {
+    const page = `<html><head><title>Clip</title></head><body>{"u":"https://v1.pinimg.com/videos/iht/abc123def456.mp4"}</body></html>`;
+    const out = extractPinterestVideo(page);
+    expect(out.videoUrl).toBe('https://v1.pinimg.com/videos/iht/abc123def456.mp4');
+    expect(out.width).toBeNull();
+  });
+
+  it('does not mistake an HLS manifest for a video file', () => {
+    const page = `<html><head><title>Clip</title></head><body>{"u":"https://v1.pinimg.com/videos/iht/hls/abc123def456.m3u8"}</body></html>`;
+    expect(extractPinterestVideo(page)).toBeNull();
+  });
 });
