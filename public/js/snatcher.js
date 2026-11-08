@@ -144,15 +144,32 @@
         signal: controller.signal,
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+      if (!res.ok) {
+        const error = new Error(data.error || 'Something went wrong.');
+        error.code = data.code || 'unknown';
+        throw error;
+      }
       return data;
     } catch (err) {
-      if (err.name === 'AbortError') throw new Error('Took too long. Try again.');
+      if (err.name === 'AbortError') {
+        const error = new Error('Took too long. Try again.');
+        error.code = 'timeout';
+        throw error;
+      }
       throw err;
     } finally {
       clearTimeout(timer);
       currentAbort = null;
     }
+  }
+
+  // A failed resolve or convert goes to the dedicated animated error page,
+  // keyed by the server's error code — not the inline status line. The page
+  // has its own "Try again" (back) and "Back home" actions.
+  function goToErrorPage(err) {
+    const code =
+      err && typeof err.code === 'string' && /^[a-z_]+$/.test(err.code) ? err.code : 'unknown';
+    window.location.assign(`/error?code=${code}`);
   }
 
   // --- results ---------------------------------------------------------------
@@ -206,6 +223,13 @@
       href: item.downloadUrl,
       download: item.filename || '',
     }, [icon('download'), document.createTextNode('Download')]);
+    // Merged / converted files are fetched to the server first so the
+    // browser gets an exact size — say so, or the pause looks broken.
+    if (item.ytdlp && (String(item.ytdlp.formatId || '').includes('+') || /\.m3u8(\?|$)/i.test(item.url || ''))) {
+      download.addEventListener('click', () => {
+        setStatus('Getting your file ready — the download starts in a moment.');
+      });
+    }
     const copy = el('button', { class: 'btn btn--secondary', type: 'button' }, [icon('copy'), document.createTextNode('Copy link')]);
     copy.addEventListener('click', async () => {
       try {
@@ -213,8 +237,10 @@
         copy.textContent = '';
         copy.appendChild(icon('check'));
         copy.appendChild(document.createTextNode('Copied'));
+        copy.classList.add('is-settled');
         setTimeout(() => {
           copy.textContent = '';
+          copy.classList.remove('is-settled');
           copy.appendChild(icon('copy'));
           copy.appendChild(document.createTextNode('Copy link'));
         }, 2000);
@@ -227,6 +253,43 @@
     body.appendChild(actions);
     card.appendChild(body);
     return card;
+  }
+
+  // One caption per post/video, shown below the download buttons: the
+  // fetched caption text in a box, with a copy button. Returns null when
+  // the source gave no caption — the box simply does not appear.
+  function captionSection(caption) {
+    if (!caption) return null;
+    const section = el('section', { class: 'caption-box' });
+    section.appendChild(el('p', { class: 'caption-label', text: 'Caption' }));
+    const box = el('textarea', {
+      class: 'caption-text',
+      readonly: '',
+      rows: '4',
+      'aria-label': 'Caption',
+    });
+    box.value = caption;
+    section.appendChild(box);
+    const copy = el('button', { class: 'btn btn--secondary', type: 'button' }, [icon('copy'), document.createTextNode('Copy caption')]);
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(caption);
+        copy.textContent = '';
+        copy.appendChild(icon('check'));
+        copy.appendChild(document.createTextNode('Copied'));
+        copy.classList.add('is-settled');
+        setTimeout(() => {
+          copy.textContent = '';
+          copy.classList.remove('is-settled');
+          copy.appendChild(icon('copy'));
+          copy.appendChild(document.createTextNode('Copy caption'));
+        }, 2000);
+      } catch {
+        setStatus('Copy did not work — select the text and copy it manually.', { alert: true });
+      }
+    });
+    section.appendChild(copy);
+    return section;
   }
 
   function renderMediaResult(container, result, { filter } = {}) {
@@ -271,6 +334,8 @@
     const grid = el('div', { class: 'media-grid' });
     items.forEach((item, i) => grid.appendChild(mediaCard(item, i)));
     container.appendChild(grid);
+    const caption = captionSection(result.caption);
+    if (caption) container.appendChild(caption);
   }
 
   function renderEmpty(container, title, line) {
@@ -294,6 +359,8 @@
         const grid = el('div', { class: 'media-grid' });
         result.mediaItems.forEach((item, i) => grid.appendChild(mediaCard(item, i)));
         group.appendChild(grid);
+        const caption = captionSection(result.caption);
+        if (caption) group.appendChild(caption);
       } else {
         const empty = el('div', { class: 'empty-state' });
         empty.appendChild(el('h3', { text: 'Could not grab this one.' }));
@@ -307,7 +374,7 @@
   // --- YouTube two-step flow ---------------------------------------------------
   async function runYouTube(url) {
     setLoading('Asking YouTube for the video info…');
-    const infoRes = await postJson('/api/youtube/info', { url }, 90000);
+    const infoRes = await postJson('/api/youtube/info', { url }, 150000);
     const info = infoRes.data;
     clearStatus();
 
@@ -323,67 +390,62 @@
     summary.appendChild(sumBody);
     resultsEl.appendChild(summary);
 
-    const head = el('div', { class: 'results-head' });
-    head.appendChild(el('h2', { text: 'Choose a format' }));
-    resultsEl.appendChild(head);
-
-    const list = el('div', { class: 'format-list', role: 'radiogroup', 'aria-label': 'Formats' });
-    info.formats.forEach((format, i) => {
-      const row = el('label', { class: 'format-row' });
-      const radio = el('input', { type: 'radio', name: 'yt-format', value: format.id });
-      if (i === 0) radio.checked = true;
-      row.appendChild(radio);
-      row.appendChild(el('span', { class: 'format-label', text: format.label }));
-      const size = fmtBytes(format.size);
-      if (size) row.appendChild(el('span', { class: 'format-size', text: size }));
-      list.appendChild(row);
-    });
-    resultsEl.appendChild(list);
-
-    const actions = el('div', { class: 'batch-actions' });
-    const convertBtn = el('button', { class: 'btn btn--primary', type: 'button' }, [icon('download'), document.createTextNode('Snatch it')]);
-    actions.appendChild(convertBtn);
-    resultsEl.appendChild(actions);
-
-    convertBtn.addEventListener('click', async () => {
-      const checked = list.querySelector('input[name="yt-format"]:checked');
-      if (!checked) return;
-      convertBtn.disabled = true;
+    // Video and Audio as separate sections: one row per format, each with
+    // its own Download button. Clicking it downloads exactly that format —
+    // no separate pick-then-convert step.
+    async function downloadFormat(format, button) {
+      button.disabled = true;
       setLoading('Getting your file ready…');
       try {
-        const conv = await postJson('/api/youtube/convert', { url, formatId: checked.value }, 90000);
+        const conv = await postJson('/api/youtube/convert', { url, formatId: format.id }, 120000);
         clearStatus();
-        actions.textContent = '';
-        const download = el('a', {
-          class: 'btn btn--primary',
-          href: conv.data.downloadUrl,
-          download: conv.data.filename || '',
-        }, [icon('download'), document.createTextNode(`Download · ${conv.data.quality || conv.data.format}`)]);
-        actions.appendChild(download);
-        const again = el('button', { class: 'btn btn--secondary', type: 'button' }, [document.createTextNode('Snatch another')]);
-        again.addEventListener('click', () => {
-          resultsEl.textContent = '';
-          const input = $('#urlInput');
-          if (input) {
-            input.value = '';
-            input.focus();
-          }
-        });
-        actions.appendChild(again);
+        const a = document.createElement('a');
+        a.href = conv.data.downloadUrl;
+        a.download = conv.data.filename || '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
         saveRecent(url, 'youtube', info.title);
       } catch (err) {
-        setStatus(err.message, { alert: true });
+        goToErrorPage(err);
       } finally {
-        convertBtn.disabled = false;
+        button.disabled = false;
       }
-    });
+    }
+
+    function formatSection(heading, formats) {
+      if (!formats || formats.length === 0) return;
+      const head = el('div', { class: 'results-head' });
+      head.appendChild(el('h2', { text: heading }));
+      resultsEl.appendChild(head);
+      const list = el('div', { class: 'format-list' });
+      formats.forEach((format) => {
+        const row = el('div', { class: 'format-row' });
+        row.appendChild(el('span', { class: 'format-label', text: format.label }));
+        const size = fmtBytes(format.size);
+        if (size) row.appendChild(el('span', { class: 'format-size', text: size }));
+        const dl = el('button', { class: 'btn btn--primary', type: 'button' }, [icon('download'), document.createTextNode('Download')]);
+        dl.addEventListener('click', () => downloadFormat(format, dl));
+        row.appendChild(dl);
+        list.appendChild(row);
+      });
+      resultsEl.appendChild(list);
+    }
+
+    formatSection('Video', info.videoFormats || info.formats.filter((f) => f.type === 'mp4'));
+    formatSection('Audio', info.audioFormats || info.formats.filter((f) => f.type === 'audio'));
+
+    // The caption sits below the downloads, with its copy button.
+    const caption = captionSection(info.caption);
+    if (caption) resultsEl.appendChild(caption);
+
   }
 
   // --- single resolve ------------------------------------------------------------
   async function runSingle(url, platform, { mediaType } = {}) {
     const detected = platform || detectPlatform(url);
     if (!detected) {
-      setStatus('That link is not from a supported platform.', { alert: true });
+      goToErrorPage({ code: 'invalid_url' });
       return;
     }
     if (detected === 'youtube') {
@@ -397,11 +459,12 @@
       renderMediaResult(resultsEl, {
         platform: detected,
         title: data.title,
+        caption: data.caption,
         items: data.mediaItems,
       });
       saveRecent(url, detected, data.title);
     } catch (err) {
-      setStatus(err.message, { alert: true });
+      goToErrorPage(err);
     }
   }
 
@@ -492,7 +555,7 @@
         : undefined;
       resultsEl.textContent = '';
       runSingle(url, platform, { mediaType }).catch((err) => {
-        setStatus(err.message, { alert: true });
+        goToErrorPage(err);
       });
     });
 
@@ -541,7 +604,7 @@
       }
       resultsEl.textContent = '';
       runSingle(url, null).catch((err) => {
-        setStatus(err.message, { alert: true });
+        goToErrorPage(err);
       });
     });
 
@@ -567,7 +630,7 @@
           if (result.success) saveRecent(result.url, result.platform, result.title);
         });
       } catch (err) {
-        setStatus(err.message, { alert: true });
+        goToErrorPage(err);
       } finally {
         batchGo.disabled = false;
       }

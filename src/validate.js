@@ -16,17 +16,68 @@ const PLATFORM_HOSTS = {
     'music.youtube.com',
     'www.music.youtube.com',
   ],
-  pinterest: ['pinterest.com', 'www.pinterest.com', 'pin.it'],
+  // Country domains are separate domains, not subdomains, so they are
+  // listed explicitly — a user in India pastes in.pinterest.com (a subdomain,
+  // covered by the suffix rule below), a user in the UK pastes
+  // pinterest.co.uk (listed here).
+  pinterest: [
+    'pinterest.com',
+    'www.pinterest.com',
+    'pin.it',
+    'pinterest.co.uk',
+    'pinterest.fr',
+    'pinterest.de',
+    'pinterest.it',
+    'pinterest.es',
+    'pinterest.jp',
+    'pinterest.com.au',
+    'pinterest.ca',
+    'pinterest.com.br',
+    'pinterest.co.kr',
+    'pinterest.se',
+    'pinterest.nl',
+    'pinterest.pl',
+    'pinterest.com.mx',
+    'pinterest.co.in',
+    'pinterest.ru',
+    'pinterest.com.tr',
+    'pinterest.co.za',
+    'pinterest.ie',
+    'pinterest.at',
+    'pinterest.ch',
+    'pinterest.nz',
+    'pinterest.dk',
+    'pinterest.fi',
+    'pinterest.no',
+    'pinterest.pt',
+    'pinterest.be',
+    'pinterest.cl',
+    'pinterest.com.ar',
+    'pinterest.com.co',
+  ],
   tiktok: ['tiktok.com', 'www.tiktok.com', 'vt.tiktok.com', 'vm.tiktok.com'],
   facebook: ['facebook.com', 'www.facebook.com', 'fb.watch'],
   twitter: ['twitter.com', 'www.twitter.com', 'x.com', 'www.x.com'],
 };
 
-const ALL_HOSTS = new Set(Object.values(PLATFORM_HOSTS).flat());
-const HOST_TO_PLATFORM = new Map();
-for (const [platform, hosts] of Object.entries(PLATFORM_HOSTS)) {
-  for (const host of hosts) HOST_TO_PLATFORM.set(host, platform);
+// A host is allowed when it is exactly an allowlisted host, or a subdomain
+// of one (m.youtube.com, m.facebook.com, in.pinterest.com, mobile.x.com).
+// The platform owns its own subdomains, so the suffix rule is safe — and the
+// DNS check below still applies. It does NOT match lookalikes:
+// evil-pinterest.com and pinterest.evil.com are not subdomains of
+// pinterest.com.
+function hostAllowed(host, allowed) {
+  return allowed.some((base) => host === base || host.endsWith(`.${base}`));
 }
+
+function platformForHost(host) {
+  for (const [platform, hosts] of Object.entries(PLATFORM_HOSTS)) {
+    if (hostAllowed(host, hosts)) return platform;
+  }
+  return null;
+}
+
+const ALL_HOSTS = new Set(Object.values(PLATFORM_HOSTS).flat());
 
 function isPrivateIp(ip) {
   if (!net.isIP(ip)) return false;
@@ -58,7 +109,7 @@ function isPrivateIp(ip) {
 function detectPlatform(rawUrl) {
   try {
     const parsed = new URL(String(rawUrl).trim());
-    return HOST_TO_PLATFORM.get(parsed.hostname.toLowerCase()) || null;
+    return platformForHost(parsed.hostname.toLowerCase());
   } catch {
     return null;
   }
@@ -90,7 +141,7 @@ async function validateMediaUrl(rawUrl, platform) {
   if (platform && !PLATFORM_HOSTS[platform]) {
     throw Errors.unsupportedPlatform();
   }
-  if (!allowed.includes(host)) {
+  if (!hostAllowed(host, allowed)) {
     if (platform) {
       throw Errors.invalidUrl(`That is not a ${platform} link.`);
     }
@@ -126,7 +177,7 @@ async function validateMediaUrl(rawUrl, platform) {
     throw Errors.invalidUrl('We could not reach that host.');
   }
 
-  const detected = HOST_TO_PLATFORM.get(host);
+  const detected = platformForHost(host);
   return { url: parsed.toString(), platform: platform || detected };
 }
 

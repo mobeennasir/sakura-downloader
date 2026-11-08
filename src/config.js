@@ -10,6 +10,14 @@ const config = {
   // Path to the yt-dlp binary. Koyeb/Docker installs it at /usr/local/bin/yt-dlp.
   ytdlpPath: process.env.YTDLP_PATH || 'yt-dlp',
 
+  // YouTube login cookies, to pass YouTube's "sign in to confirm you're
+  // not a bot" check on datacenter IPs. YTDLP_COOKIES holds the Netscape
+  // cookies.txt CONTENT (set it in Koyeb as a secret env var — never commit
+  // it, never log it); YTDLP_COOKIES_FILE is a path to a cookies.txt file
+  // instead, for local runs. The cookies are only ever handed to yt-dlp.
+  ytdlpCookies: process.env.YTDLP_COOKIES || null,
+  ytdlpCookiesFile: process.env.YTDLP_COOKIES_FILE || null,
+
   // Secret used to sign /dl download URLs. A random per-boot secret is fine for
   // a single instance; set DOWNLOAD_SECRET in env when running more than one.
   downloadSecret:
@@ -20,6 +28,13 @@ const config = {
 
   upstreamTimeoutMs: parseInt(process.env.UPSTREAM_TIMEOUT_MS || '30000', 10),
   ytdlpTimeoutMs: parseInt(process.env.YTDLP_TIMEOUT_MS || '60000', 10),
+  // Downloads are different from info lookups: a 2160p merge can take
+  // minutes on a slow pipe, and killing it mid-file gives the user a 504
+  // for a download that would have finished. 10 minutes.
+  ytdlpDownloadTimeoutMs: parseInt(
+    process.env.YTDLP_DOWNLOAD_TIMEOUT_MS || String(10 * 60 * 1000),
+    10
+  ),
 
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || String(60 * 1000), 10),
   rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || '60', 10),

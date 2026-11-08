@@ -69,6 +69,22 @@ function dedupeByUrl(items) {
   });
 }
 
+// Captions: the text attached to the post/video, when the source provides
+// one. First non-empty candidate wins; trimmed and capped so a very long
+// YouTube description cannot blow up the response. Returns null when no
+// source has caption text — the frontend hides the caption box then.
+// Not every source carries one: igdl (Instagram) returns media URLs only,
+// so Instagram captions appear only when the yt-dlp path ran.
+const CAPTION_MAX = 10000;
+function pickCaption(...candidates) {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim().slice(0, CAPTION_MAX);
+    }
+  }
+  return null;
+}
+
 function withTimeout(promise, ms, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
@@ -89,6 +105,7 @@ function withTimeout(promise, ms, label) {
 async function resolveInstagram(url) {
   let items = [];
   let title = 'Instagram media';
+  let caption = null;
 
   try {
     const data = await withTimeout(igdl(url), config.upstreamTimeoutMs, 'Instagram');
@@ -124,6 +141,7 @@ async function resolveInstagram(url) {
       const extra = ytdlpInfoToItems(info, title, url);
       items = dedupeByUrl([...items, ...extra]);
       if (info.title) title = info.title;
+      caption = pickCaption(info.description);
     } catch (err) {
       if (items.length === 0) throw toSnatcherError(err);
       logger.warn({ err: err.message }, 'yt-dlp Instagram fallback failed');
@@ -132,7 +150,7 @@ async function resolveInstagram(url) {
 
   items = dedupeByUrl(items);
   if (items.length === 0) throw Errors.noMedia();
-  return { title, thumbnail: items[0].thumbnail || null, items };
+  return { title, thumbnail: items[0].thumbnail || null, items, caption };
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +166,7 @@ async function resolvePinterest(url) {
         title: info.title || 'Pinterest media',
         thumbnail: info.thumbnail || items[0].thumbnail || null,
         items,
+        caption: pickCaption(info.description),
       };
     }
     throw Errors.noMedia();
@@ -182,7 +201,7 @@ async function resolvePinterest(url) {
       'Pinterest media'
     ),
   ].filter(Boolean);
-  return { title: pin.title || 'Pinterest media', thumbnail: pin.image || null, items };
+  return { title: pin.title || 'Pinterest media', thumbnail: pin.image || null, items, caption: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +215,7 @@ async function resolveTikTok(url) {
     const info = await ytdlp.getInfo(url);
     const items = ytdlpInfoToItems(info, info.title || 'TikTok video', url);
     if (items.length > 0) {
-      return { title: info.title || 'TikTok video', thumbnail: info.thumbnail || null, items };
+      return { title: info.title || 'TikTok video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description) };
     }
     throw Errors.noMedia();
   } catch (err) {
@@ -222,7 +241,7 @@ async function resolveTikTok(url) {
       )
       .filter(Boolean);
     if (items.length > 0) {
-      return { title: data.title || 'TikTok video', thumbnail: data.thumbnail || null, items };
+      return { title: data.title || 'TikTok video', thumbnail: data.thumbnail || null, items, caption: pickCaption(data.title) };
     }
   }
   throw Errors.noMedia();
@@ -251,7 +270,7 @@ async function resolveFacebook(url) {
         .filter(Boolean);
       const best = dedupeByUrl(items);
       if (best.length > 0) {
-        return { title: 'Facebook video', thumbnail: null, items: best };
+        return { title: 'Facebook video', thumbnail: null, items: best, caption: null };
       }
     }
     throw new Error((data && data.message) || 'No media URL found');
@@ -260,7 +279,7 @@ async function resolveFacebook(url) {
     const info = await ytdlp.getInfo(url);
     const items = ytdlpInfoToItems(info, 'Facebook video', url);
     if (items.length === 0) throw Errors.noMedia();
-    return { title: info.title || 'Facebook video', thumbnail: info.thumbnail || null, items };
+    return { title: info.title || 'Facebook video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description) };
   }
 }
 
@@ -314,7 +333,8 @@ async function resolveTwitter(url) {
           'Twitter video'
         ),
       ].filter(Boolean);
-      return { title: data.title || 'Twitter video', thumbnail: null, items };
+      // The btch title IS the tweet text — that is the caption here.
+      return { title: data.title || 'Twitter video', thumbnail: null, items, caption: pickCaption(data.title) };
     }
     throw new Error('No media URL found. The post might be private, restricted, or unavailable.');
   } catch (err) {
@@ -322,7 +342,7 @@ async function resolveTwitter(url) {
     const info = await ytdlp.getInfo(url);
     const items = ytdlpInfoToItems(info, 'Twitter video', url);
     if (items.length === 0) throw Errors.noMedia();
-    return { title: info.title || 'Twitter video', thumbnail: info.thumbnail || null, items };
+    return { title: info.title || 'Twitter video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description, info.title) };
   }
 }
 
@@ -462,18 +482,23 @@ async function getYouTubeInfo(rawUrl) {
         };
       });
 
-    if (bestAudio) {
-      picked.push({
-        id: `${bestAudio.format_id}`,
+    // Audio on its own: the best few by bitrate, so the Audio section has
+    // real choices (m4a / opus / webm) instead of a single take-it-or-leave-it.
+    const audioPicked = [...audioFormats]
+      .sort((a, b) => (b.abr || 0) - (a.abr || 0))
+      .slice(0, 3)
+      .map((af) => ({
+        id: `${af.format_id}`,
         type: 'audio',
         quality: 'Audio only',
-        ext: bestAudio.ext || 'm4a',
-        size: bestAudio.filesize || bestAudio.filesize_approx || null,
-        label: `Audio only · ${bestAudio.ext || 'm4a'}`,
-      });
-    }
+        ext: af.ext || 'm4a',
+        size: af.filesize || af.filesize_approx || null,
+        label: af.abr ? `Audio · ${af.abr} kbps · ${af.ext || 'm4a'}` : `Audio only · ${af.ext || 'm4a'}`,
+      }));
 
-    if (picked.length === 0) throw Errors.noMedia();
+    const pickedFormats = [...picked, ...audioPicked];
+
+    if (pickedFormats.length === 0) throw Errors.noMedia();
     return {
       title: info.title || 'YouTube video',
       thumbnail:
@@ -482,7 +507,10 @@ async function getYouTubeInfo(rawUrl) {
       duration: info.duration || null,
       author: info.uploader || null,
       client: info._client || 'tv_embedded',
-      formats: picked,
+      caption: pickCaption(info.description),
+      formats: pickedFormats,
+      videoFormats: picked,
+      audioFormats: audioPicked,
     };
   });
 }
@@ -509,6 +537,7 @@ async function resolveForBatch(rawUrl) {
       platform,
       title: info.title,
       thumbnail: info.thumbnail,
+      caption: info.caption || null,
       items: [
         {
           type: best.type === 'audio' ? 'audio' : 'video',
@@ -530,7 +559,7 @@ async function resolveForBatch(rawUrl) {
     };
   }
   const result = await resolveMedia(rawUrl, platform);
-  return { platform, title: result.title, thumbnail: result.thumbnail, items: result.items };
+  return { platform, title: result.title, thumbnail: result.thumbnail, caption: result.caption || null, items: result.items };
 }
 
 // The universal function: one entry point for every platform. Validates the
@@ -544,7 +573,7 @@ async function resolveMedia(rawUrl, platform) {
     try {
       const result = await RESOLVERS[p](url);
       if (!result.items || result.items.length === 0) throw Errors.noMedia();
-      return { platform: p, title: result.title, thumbnail: result.thumbnail, items: result.items };
+      return { platform: p, title: result.title, thumbnail: result.thumbnail, caption: result.caption || null, items: result.items };
     } catch (err) {
       throw toSnatcherError(err);
     }
@@ -558,5 +587,6 @@ module.exports = {
   ytdlpInfoToItems,
   normalizeItem,
   dedupeByUrl,
+  pickCaption,
   RESOLVERS,
 };

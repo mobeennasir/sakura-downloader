@@ -1,29 +1,44 @@
-/* Hallmark · Midnight · Snatcher · deal 2/3, seed snatcher-fast-media-downloader-58fb · genre atmospheric */
-/* Critique: dark midnight ground, one azure signal, square-cut surfaces; the URL bar is the hero. */
+/* Hallmark · Coral · Snatcher · deal 1/3, seed snatcher-fast-media-downloader-bd80 · genre modern-minimal */
+/* Critique: warm grey paper, one coral signal, letterpress cards; the URL bar is the hero. */
 
 :root {
-  --color-paper: oklch(14% 0.048 264);
-  --color-paper-2: oklch(18.5% 0.052 264);
-  --color-paper-3: oklch(23% 0.055 264);
-  --color-ink: oklch(95% 0.016 250);
-  --color-ink-2: oklch(88% 0.05 245);
-  --color-muted: oklch(73% 0.04 256);
-  --color-rule: oklch(29% 0.058 264);
-  --color-rule-2: oklch(40% 0.06 262);
-  --color-accent: oklch(80% 0.11 230);
-  --color-accent-2: oklch(58% 0.1 236);
-  --color-accent-ink: oklch(16% 0.05 264);
-  --color-focus: oklch(84% 0.12 228);
-  --color-danger: oklch(72% 0.12 25);
-  --font-display: "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+  --color-paper: oklch(97% 0.006 55);
+  --color-paper-2: oklch(94.5% 0.007 55);
+  --color-paper-3: oklch(91.5% 0.009 55);
+  --color-ink: oklch(21% 0.012 38);
+  --color-ink-2: oklch(29% 0.013 40);
+  --color-muted: oklch(47% 0.013 45);
+  --color-rule: oklch(87% 0.009 55);
+  --color-rule-2: oklch(81% 0.011 55);
+  --color-accent: oklch(74% 0.125 30);
+  --color-accent-2: oklch(54% 0.165 29);
+  --color-accent-ink: oklch(21% 0.012 38);
+  --color-focus: oklch(54% 0.17 30);
+  --color-cotton: oklch(98.8% 0.0045 80);
+  --color-desk: oklch(94.3% 0.008 64);
+  --color-print: oklch(23% 0.012 38);
+  --color-board: oklch(22% 0.011 40);
+  --color-board-type: oklch(96.5% 0.006 70);
+  --color-paid: oklch(55.5% 0.15 33);
+  --color-danger: oklch(52% 0.16 22);
+  --shade: 32% 0.03 50;
+  --lit: 100% 0.005 80;
+  --deep: 7% 0.01 40;
+  --font-display: "General Sans", ui-sans-serif, system-ui, sans-serif;
   --font-body: var(--font-display);
-  --radius-card: 0;
-  --radius-pill: 0;
+  --font-outlier: "Geist Mono", ui-monospace, monospace;
+  --radius-card: 8px;
+  --radius-input: 6px;
+  --radius-pill: 999px;
+  --radius-stock: 8px;
   --rule-hair: 1px;
-  --shadow-card: 0 24px 48px -24px oklch(6% 0.04 264 / 0.7);
-  --tracking-display: -0.015em;
-  --display-weight: 300;
-  --display-stretch: 125%;
+  --shadow-card: 0 1px 2px oklch(20% 0.01 35 / 0.05);
+  --edge-stock: inset 0 1px 0 oklch(var(--lit) / 0.9), inset 0 -1px 0 oklch(var(--shade) / 0.07), 0 0 0 0.5px oklch(var(--shade) / 0.22), 0 1px 0 oklch(var(--shade) / 0.12);
+  --cast-stock: 6px 5px 10px -6px oklch(var(--shade) / 0.3);
+  --cast-stock-lift: 12px 10px 18px -8px oklch(var(--shade) / 0.3);
+  --press-groove: inset 1px 1.5px 2px oklch(var(--shade) / 0.16), inset -1px -1px 0 oklch(var(--lit) / 0.9), 0 0 0 0.5px oklch(var(--shade) / 0.2);
+  --tracking-display: -0.03em;
+  --display-weight: 600;
   --space-xs: 0.5rem;
   --space-sm: 0.75rem;
   --space-md: 1rem;
@@ -60,9 +75,8 @@ body {
 h1,
 h2 {
   font-weight: var(--display-weight);
-  font-stretch: var(--display-stretch);
   letter-spacing: var(--tracking-display);
-  line-height: 1.04;
+  line-height: 1.05;
   color: var(--color-ink);
   overflow-wrap: break-word;
   min-width: 0;
@@ -95,7 +109,11 @@ a {
 }
 
 a:hover {
-  text-decoration-color: var(--color-accent);
+  text-decoration-color: var(--color-accent-2);
+}
+
+::selection {
+  background: oklch(74% 0.125 30 / 0.35);
 }
 
 button,
@@ -144,6 +162,7 @@ video {
 /* Header */
 .site-header {
   border-bottom: var(--rule-hair) solid var(--color-rule);
+  background: var(--color-paper);
 }
 
 .site-header .container {
@@ -160,7 +179,6 @@ video {
   gap: var(--space-sm);
   text-decoration: none;
   font-weight: var(--display-weight);
-  font-stretch: var(--display-stretch);
   font-size: 1.375rem;
   letter-spacing: var(--tracking-display);
   color: var(--color-ink);
@@ -170,6 +188,7 @@ video {
   width: 28px;
   height: 28px;
   flex: none;
+  color: var(--color-accent-2);
 }
 
 .site-nav {
@@ -191,13 +210,16 @@ video {
 .site-nav a[aria-current="page"] {
   color: var(--color-ink);
   text-decoration: underline;
-  text-decoration-color: var(--color-accent);
+  text-decoration-color: var(--color-accent-2);
   text-underline-offset: 0.25em;
 }
 
-/* Hero */
+/* Hero: the desk. Daylight from the left, the URL bar as the job on it. */
 .hero {
   padding-block: var(--space-2xl) var(--space-xl);
+  background-color: var(--color-desk);
+  background-image: radial-gradient(90% 120% at 0% 30%, var(--color-cotton), transparent 62%);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
 }
 
 .hero .settle {
@@ -217,38 +239,74 @@ video {
   font-size: 1.125rem;
 }
 
-.mode-toggle {
+/* Groove choices: mode toggle and Pinterest filter.
+   A groove pressed into the desk; the chosen stop is a cotton card riding in it. */
+.mode-toggle,
+.segmented {
   display: inline-flex;
-  margin-top: var(--space-lg);
-  border: var(--rule-hair) solid var(--color-rule-2);
+  gap: 4px;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--color-paper-2);
+  box-shadow: var(--press-groove);
 }
 
-.mode-toggle button {
+.mode-toggle {
+  margin-top: var(--space-lg);
+}
+
+.segmented {
+  margin-bottom: var(--space-md);
+}
+
+.segmented--spaced {
+  margin-top: var(--space-md);
+}
+
+.mode-toggle button,
+.segmented label {
   background: none;
   border: 0;
+  border-radius: var(--radius-stock);
   padding: var(--space-xs) var(--space-md);
   font-weight: 500;
   font-size: 0.9375rem;
   color: var(--color-muted);
 }
 
-.mode-toggle button[aria-pressed="true"] {
-  background: var(--color-ink);
-  color: var(--color-paper);
+.segmented label {
+  cursor: pointer;
+  position: relative;
 }
 
-/* URL bar: the hero's action */
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mode-toggle button[aria-pressed="true"],
+.segmented label:has(input:checked) {
+  background: var(--color-cotton);
+  color: var(--color-print);
+  box-shadow: var(--edge-stock);
+}
+
+/* URL bar: the hero's action, a cotton card on the desk. */
 .url-bar {
   display: flex;
   gap: 0;
   margin-top: var(--space-lg);
   max-width: 720px;
-  border: var(--rule-hair) solid var(--color-muted);
-  background: var(--color-paper);
+  background: var(--color-cotton);
+  border-radius: var(--radius-stock);
+  box-shadow: var(--edge-stock), var(--cast-stock);
 }
 
 .url-bar:focus-within {
-  border-color: var(--color-focus);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 .url-bar input {
@@ -265,10 +323,6 @@ video {
   color: var(--color-muted);
 }
 
-.url-bar .btn {
-  border-left: var(--rule-hair) solid var(--color-rule-2);
-}
-
 .batch-box {
   margin-top: var(--space-lg);
   max-width: 720px;
@@ -278,8 +332,10 @@ video {
   width: 100%;
   min-height: 132px;
   resize: vertical;
-  background: var(--color-paper);
+  background: var(--color-cotton);
   border: var(--rule-hair) solid var(--color-muted);
+  border-radius: var(--radius-input);
+  box-shadow: var(--edge-stock);
   padding: var(--space-md);
   font-size: 1rem;
   line-height: 1.6;
@@ -307,20 +363,20 @@ video {
   font-size: 0.9375rem;
 }
 
-/* Buttons */
+/* Buttons: letterpress cards, not pills. Primary is the ink board. */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  border: var(--rule-hair) solid transparent;
-  background: none;
-  border-radius: var(--radius-pill);
+  min-height: 48px;
+  border: 0;
+  border-radius: var(--radius-stock);
   padding: var(--space-sm) var(--space-lg);
   font-weight: 500;
   color: var(--color-ink);
   text-decoration: none;
-  transition: background-color var(--dur-short) var(--ease-out);
+  transition: transform var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out), background-color var(--dur-short) var(--ease-out);
   white-space: nowrap;
 }
 
@@ -330,31 +386,50 @@ video {
   flex: none;
 }
 
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
 .btn--primary {
-  background: var(--color-accent);
-  color: var(--color-accent-ink);
+  background: var(--color-board);
+  color: var(--color-board-type);
+  box-shadow: var(--cast-stock);
 }
 
 .btn--primary:hover {
-  background: var(--color-focus);
+  box-shadow: var(--cast-stock-lift);
 }
 
 .btn--secondary {
-  border-color: var(--color-rule-2);
+  background: var(--color-cotton);
+  color: var(--color-print);
+  box-shadow: var(--edge-stock), var(--cast-stock);
 }
 
 .btn--secondary:hover {
-  background: var(--color-paper-2);
+  box-shadow: var(--edge-stock), var(--cast-stock-lift);
+}
+
+/* The settled state (Copied) is pressed in coral. */
+.btn.is-settled {
+  color: var(--color-paid);
 }
 
 .btn--ghost {
   color: var(--color-muted);
   padding: var(--space-sm) var(--space-sm);
+  min-height: 48px;
+  box-shadow: none;
 }
 
 .btn--ghost:hover {
   color: var(--color-ink);
   background: var(--color-paper-2);
+  transform: none;
 }
 
 .btn[disabled] {
@@ -379,7 +454,7 @@ video {
   width: 14px;
   height: 14px;
   border: 2px solid var(--color-rule-2);
-  border-top-color: var(--color-accent);
+  border-top-color: var(--color-accent-2);
   border-radius: 50%;
   vertical-align: -2px;
   margin-right: var(--space-xs);
@@ -417,20 +492,29 @@ video {
 
 .platform-card {
   display: block;
-  background: var(--color-paper-2);
+  background: var(--color-cotton);
+  border-radius: var(--radius-card);
+  box-shadow: var(--edge-stock), var(--cast-stock);
   padding: var(--space-lg);
   text-decoration: none;
-  transition: background-color var(--dur-short) var(--ease-out);
+  transition: transform var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
 }
 
 .platform-card:hover {
-  background: var(--color-paper-3);
+  transform: translateY(-1px);
+  box-shadow: var(--edge-stock), var(--cast-stock-lift);
+}
+
+.platform-card:hover h3 {
+  text-decoration: underline;
+  text-decoration-color: var(--color-accent-2);
+  text-underline-offset: 0.2em;
 }
 
 .platform-card .platform-icon {
   display: block;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   margin-bottom: var(--space-md);
   color: var(--color-ink);
 }
@@ -453,6 +537,9 @@ video {
 /* Platform page */
 .page-head {
   padding-block: var(--space-2xl) var(--space-lg);
+  background-color: var(--color-desk);
+  background-image: radial-gradient(90% 120% at 0% 30%, var(--color-cotton), transparent 62%);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
 }
 
 .page-head .back-link {
@@ -496,7 +583,9 @@ video {
 
 .howto {
   margin-top: var(--space-xl);
-  background: var(--color-paper-2);
+  background: var(--color-cotton);
+  border-radius: var(--radius-card);
+  box-shadow: var(--edge-stock), var(--cast-stock);
   padding: var(--space-lg);
 }
 
@@ -515,48 +604,6 @@ video {
   margin-top: var(--space-md);
   color: var(--color-muted);
   font-size: 0.9375rem;
-}
-
-/* Segmented choice (Pinterest filter, format picker) */
-.segmented {
-  display: inline-flex;
-  border: var(--rule-hair) solid var(--color-rule-2);
-  margin-bottom: var(--space-md);
-}
-
-.segmented--spaced {
-  margin-top: var(--space-md);
-}
-
-.segmented button,
-.segmented label {
-  background: none;
-  border: 0;
-  padding: var(--space-xs) var(--space-md);
-  font-weight: 500;
-  font-size: 0.9375rem;
-  color: var(--color-muted);
-}
-
-.segmented button[aria-pressed="true"] {
-  background: var(--color-ink);
-  color: var(--color-paper);
-}
-
-.segmented label:has(input:checked) {
-  background: var(--color-ink);
-  color: var(--color-paper);
-}
-
-.segmented input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.segmented label {
-  cursor: pointer;
-  position: relative;
 }
 
 /* Results */
@@ -587,9 +634,12 @@ video {
 }
 
 .media-card {
-  background: var(--color-paper-2);
+  background: var(--color-cotton);
+  border-radius: var(--radius-card);
+  box-shadow: var(--edge-stock), var(--cast-stock);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .media-card .preview {
@@ -610,11 +660,12 @@ video {
   position: absolute;
   top: var(--space-xs);
   left: var(--space-xs);
-  background: var(--color-paper);
-  color: var(--color-ink);
+  background: var(--color-board);
+  color: var(--color-board-type);
   font-size: 0.8125rem;
   font-weight: 500;
   padding: 2px 8px;
+  border-radius: 4px;
 }
 
 .media-card .body {
@@ -632,6 +683,7 @@ video {
 
 .media-card .meta {
   color: var(--color-muted);
+  font-family: var(--font-outlier);
   font-size: 0.875rem;
   font-variant-numeric: tabular-nums;
 }
@@ -644,12 +696,15 @@ video {
 }
 
 .media-card .actions .btn {
+  min-height: 40px;
   padding: var(--space-xs) var(--space-md);
   font-size: 0.9375rem;
 }
 
 .empty-state {
-  background: var(--color-paper-2);
+  background: var(--color-cotton);
+  border-radius: var(--radius-card);
+  box-shadow: var(--edge-stock), var(--cast-stock);
   padding: var(--space-xl);
   text-align: left;
 }
@@ -677,6 +732,45 @@ video {
   margin-bottom: var(--space-md);
 }
 
+/* Caption box: the post's caption on a cotton card, below the downloads. */
+.caption-box {
+  background: var(--color-cotton);
+  border-radius: var(--radius-card);
+  box-shadow: var(--edge-stock), var(--cast-stock);
+  padding: var(--space-lg);
+  margin-top: var(--space-lg);
+  max-width: 720px;
+}
+
+.caption-label {
+  font-weight: 500;
+  color: var(--color-muted);
+  font-size: 0.9375rem;
+  margin-bottom: var(--space-sm);
+}
+
+.caption-text {
+  width: 100%;
+  min-height: 96px;
+  resize: vertical;
+  background: var(--color-paper);
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-input);
+  padding: var(--space-md);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--color-ink);
+  outline: none;
+}
+
+.caption-text:focus {
+  border-color: var(--color-focus);
+}
+
+.caption-box .btn {
+  margin-top: var(--space-md);
+}
+
 /* Format list (YouTube) */
 .format-list {
   display: flex;
@@ -692,14 +786,6 @@ video {
   gap: var(--space-md);
   padding: var(--space-md) 0;
   border-bottom: var(--rule-hair) solid var(--color-rule);
-  cursor: pointer;
-}
-
-.format-row input {
-  accent-color: var(--color-accent);
-  width: 18px;
-  height: 18px;
-  flex: none;
 }
 
 .format-row .format-label {
@@ -709,8 +795,17 @@ video {
 .format-row .format-size {
   margin-left: auto;
   color: var(--color-muted);
+  font-family: var(--font-outlier);
   font-size: 0.9375rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* Each format row carries its own Download button. */
+.format-row .btn {
+  flex: none;
+  min-height: 40px;
+  padding: var(--space-xs) var(--space-md);
+  font-size: 0.9375rem;
 }
 
 .video-summary {
@@ -719,7 +814,9 @@ video {
   align-items: flex-start;
   max-width: 720px;
   margin-bottom: var(--space-lg);
-  background: var(--color-paper-2);
+  background: var(--color-cotton);
+  border-radius: var(--radius-card);
+  box-shadow: var(--edge-stock), var(--cast-stock);
   padding: var(--space-md);
 }
 
@@ -728,6 +825,7 @@ video {
   aspect-ratio: 16 / 9;
   object-fit: cover;
   flex: none;
+  border-radius: 4px;
 }
 
 .video-summary .title {
@@ -764,12 +862,13 @@ video {
 
 .recent-list a:hover {
   text-decoration: underline;
-  text-decoration-color: var(--color-accent);
+  text-decoration-color: var(--color-accent-2);
 }
 
 .recent-list time {
   margin-left: auto;
   color: var(--color-muted);
+  font-family: var(--font-outlier);
   font-size: 0.875rem;
   white-space: nowrap;
 }
@@ -813,6 +912,7 @@ video {
 
 .error-code {
   color: var(--color-muted);
+  font-family: var(--font-outlier);
   font-size: 0.9375rem;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
@@ -822,7 +922,7 @@ video {
   margin-block: var(--space-lg);
   width: 148px;
   height: 148px;
-  color: var(--color-accent);
+  color: var(--color-accent-2);
 }
 
 .error-animation svg {

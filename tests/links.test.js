@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { signDownload, verifyDownload, buildYtDlpDownloadUrl } from '../src/download-links.js';
+import {
+  signDownload,
+  verifyDownload,
+  buildYtDlpDownloadUrl,
+  buildDirectDownloadUrl,
+  ytdlpPayload,
+  directPayload,
+  needsBuffer,
+} from '../src/download-links.js';
 import { FORMAT_ID_RE } from '../src/yt-dlp.js';
 
 describe('signed download links', () => {
@@ -70,5 +78,91 @@ describe('buildYtDlpDownloadUrl', () => {
       filename: 'pin.mp4',
     });
     expect(url).toContain('c=tv_embedded');
+  });
+
+  it('carries an exact size and buffer flag inside the signature', () => {
+    const url = buildYtDlpDownloadUrl({
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      formatId: '137+140',
+      ext: 'mp4',
+      client: 'tv_embedded',
+      filename: 'Rick_Astley.mp4',
+      size: 41123456,
+      buffer: true,
+    });
+    expect(url).toContain('s=41123456');
+    expect(url).toContain('b=1');
+    const params = new URL(url, 'http://localhost').searchParams;
+    const payload = ytdlpPayload({
+      url: params.get('ytdlp'),
+      formatId: params.get('f'),
+      ext: params.get('ext'),
+      client: params.get('c'),
+      size: params.get('s'),
+      buffer: params.get('b') === '1',
+    });
+    expect(verifyDownload(payload, params.get('sig'))).toBe(true);
+  });
+
+  it('a tampered size does not verify', () => {
+    const url = buildYtDlpDownloadUrl({
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      formatId: '140',
+      ext: 'm4a',
+      filename: 'audio.m4a',
+      size: 5000000,
+    });
+    const params = new URL(url, 'http://localhost').searchParams;
+    const tampered = ytdlpPayload({
+      url: params.get('ytdlp'),
+      formatId: params.get('f'),
+      ext: params.get('ext'),
+      client: params.get('c'),
+      size: '9999999',
+    });
+    expect(verifyDownload(tampered, params.get('sig'))).toBe(false);
+  });
+});
+
+describe('needsBuffer', () => {
+  it('buffers merged formats and HLS, streams single files', () => {
+    expect(needsBuffer({ formatId: '137+140', isHls: false })).toBe(true);
+    expect(needsBuffer({ formatId: '140', isHls: false })).toBe(false);
+    expect(needsBuffer({ formatId: 'V_HLSV3_MOBILE-1025', isHls: true })).toBe(true);
+    expect(needsBuffer({ formatId: null, isHls: false })).toBe(false);
+  });
+});
+
+describe('buildDirectDownloadUrl', () => {
+  it('builds a signed url that verifies, with and without a size', () => {
+    const withSize = buildDirectDownloadUrl({
+      url: 'https://example.com/video.mp4',
+      filename: 'video.mp4',
+      size: 123456,
+    });
+    expect(withSize).toContain('s=123456');
+    const p1 = new URL(withSize, 'http://localhost').searchParams;
+    expect(
+      verifyDownload(directPayload({ url: p1.get('u'), size: p1.get('s') }), p1.get('sig'))
+    ).toBe(true);
+
+    const noSize = buildDirectDownloadUrl({ url: 'https://example.com/video.mp4', filename: 'video.mp4' });
+    expect(noSize).not.toContain('s=');
+    const p2 = new URL(noSize, 'http://localhost').searchParams;
+    expect(
+      verifyDownload(directPayload({ url: p2.get('u') }), p2.get('sig'))
+    ).toBe(true);
+  });
+
+  it('a tampered size does not verify', () => {
+    const url = buildDirectDownloadUrl({
+      url: 'https://example.com/video.mp4',
+      filename: 'video.mp4',
+      size: 123456,
+    });
+    const params = new URL(url, 'http://localhost').searchParams;
+    expect(
+      verifyDownload(directPayload({ url: params.get('u'), size: '654321' }), params.get('sig'))
+    ).toBe(false);
   });
 });

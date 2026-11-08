@@ -11,7 +11,6 @@
     "lru-cache": "^11.5.3",
     "p-queue": "^10.0.0",
     "pino": "^10.4.0",
-    "pino-http": "^11.0.0",
     "pino-pretty": "^13.2.0"
   },
   "description": "Snatcher — paste a link from YouTube, Instagram, Facebook, TikTok, Twitter/X or Pinterest and grab the video or images in one click.",

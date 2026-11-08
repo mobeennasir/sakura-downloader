@@ -9,13 +9,23 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const axios = require('axios');
+const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
 const path = require('path');
 
 const config = require('./src/config');
 const logger = require('./src/logger');
 const { SnatcherError, Errors, errorPageFor, toSnatcherError } = require('./src/errors');
 const { validateMediaUrl, validateProxyUrl, detectPlatform } = require('./src/validate');
-const { signDownload, verifyDownload, buildYtDlpDownloadUrl } = require('./src/download-links');
+const {
+  verifyDownload,
+  buildYtDlpDownloadUrl,
+  buildDirectDownloadUrl,
+  ytdlpPayload,
+  directPayload,
+  needsBuffer,
+} = require('./src/download-links');
 const { resolveMedia, resolveForBatch, getYouTubeInfo } = require('./src/media');
 const ytdlp = require('./src/yt-dlp');
 const { FORMAT_ID_RE } = ytdlp;
@@ -33,8 +43,8 @@ app.use(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
-        styleSrc: ["'self'", 'https://fonts.googleapis.com'],
-        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        styleSrc: ["'self'", 'https://fonts.googleapis.com', 'https://api.fontshare.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'https://cdn.fontshare.com'],
         imgSrc: ["'self'", 'data:', 'https:'],
         mediaSrc: ["'self'", 'https:'],
         connectSrc: ["'self'"],
@@ -147,16 +157,24 @@ function withDownloadLinks(platform, title, items) {
     let downloadUrl;
     if (item.ytdlp && item.ytdlp.url && item.ytdlp.formatId) {
       // HLS / segmented media: the proxy converts it to a real file.
+      // Merged formats and HLS buffer to disk first (their output size is
+      // unknowable until the file exists); single files stream live with
+      // their exact size in the signed payload.
+      const buffer = needsBuffer({
+        formatId: item.ytdlp.formatId,
+        isHls: /\.m3u8(\?|$)/i.test(item.url || ''),
+      });
       downloadUrl = buildYtDlpDownloadUrl({
         url: item.ytdlp.url,
         formatId: item.ytdlp.formatId,
         ext: item.ytdlp.ext || 'mp4',
         client: item.ytdlp.client,
         filename,
+        size: buffer ? null : item.size,
+        buffer: buffer || undefined,
       });
     } else {
-      const payload = `u=${item.url}`;
-      downloadUrl = `/dl?u=${encodeURIComponent(item.url)}&name=${encodeURIComponent(filename)}&sig=${signDownload(payload)}`;
+      downloadUrl = buildDirectDownloadUrl({ url: item.url, filename, size: item.size || null });
     }
     return {
       ...item,
@@ -183,6 +201,7 @@ app.get('/health/ready', async (req, res) => {
     status: ytdlpVersion ? 'ready' : 'degraded',
     checks: {
       ytdlp: ytdlpVersion ? `ok (${ytdlpVersion})` : 'missing',
+      cookies: ytdlp.hasCookies() ? 'configured' : 'not configured',
       cache: cacheStats(),
       queue: { pending: queue.pending, size: queue.size },
     },
@@ -239,12 +258,17 @@ app.post('/api/youtube/convert', async (req, res) => {
     const format = info.formats.find((f) => f.id === formatId);
     if (!format) throw Errors.invalidUrl('That format is not available for this video.');
     const filename = safeFilename(info.title, format.ext);
+    // Merged video+audio buffers to disk first (output size unknowable
+    // until merged); a single audio file streams live with its exact size.
+    const buffer = format.id.includes('+');
     const downloadUrl = buildYtDlpDownloadUrl({
       url: cleanUrl,
       formatId,
       ext: format.ext,
       client: info.client,
       filename,
+      size: buffer ? null : format.size,
+      buffer: buffer || undefined,
     });
     res.json({
       success: true,
@@ -289,6 +313,7 @@ app.post('/:platform/download', async (req, res) => {
       platform,
       title: result.title,
       thumbnail: result.thumbnail,
+      caption: result.caption || null,
       mediaItems: withDownloadLinks(platform, result.title, items),
     });
   } catch (err) {
@@ -320,6 +345,7 @@ app.post('/api/batch', async (req, res) => {
             success: true,
             title: result.title,
             thumbnail: result.thumbnail,
+            caption: result.caption || null,
             mediaItems: withDownloadLinks(result.platform, result.title, result.items),
           };
         } catch (err) {
@@ -341,9 +367,22 @@ app.post('/api/batch', async (req, res) => {
 // streams the CDN URL.
 app.get('/dl', async (req, res) => {
   try {
-    const { u, ytdlp: ytdlpUrl, f, ext, c, sig } = req.query;
+    const { u, ytdlp: ytdlpUrl, f, ext, c, s, b, sig } = req.query;
+    // `s` is the exact file size in bytes when the resolver knew it; `b=1`
+    // marks a download that must buffer to disk first (merged / converted
+    // output). Both ride inside the signature, so a client cannot lie
+    // about them — a wrong Content-Length would corrupt the download.
+    const size = /^\d+$/.test(s || '') ? parseInt(s, 10) : null;
+    const buffer = b === '1';
     if (ytdlpUrl) {
-      const payload = `ytdlp=${ytdlpUrl}&f=${f || ''}&ext=${ext || ''}&c=${c || ''}`;
+      const payload = ytdlpPayload({
+        url: ytdlpUrl,
+        formatId: f || '',
+        ext: ext || '',
+        client: c || '',
+        size: size || undefined,
+        buffer: buffer || undefined,
+      });
       if (!verifyDownload(payload, sig)) {
         return res.status(403).json({ success: false, error: 'That download link is not valid.', code: 'forbidden' });
       }
@@ -354,8 +393,34 @@ app.get('/dl', async (req, res) => {
       const safeExt = /^[a-z0-9]{2,5}$/.test(ext || '') ? ext : 'mp4';
       const filename = safeFilename(req.query.name || 'snatcher_media', safeExt);
       const isAudio = safeExt === 'm4a' || safeExt === 'mp3' || safeExt === 'opus' || safeExt === 'webm';
+      if (buffer) {
+        // Merged / converted output: fetch to a temp file first, then serve
+        // it with the real size from disk — the browser gets an exact total
+        // and a working progress bar. The temp file is deleted after.
+        const tmpPath = path.join(os.tmpdir(), `snatcher-${crypto.randomUUID()}.${safeExt}`);
+        try {
+          await ytdlp.downloadToFile(cleanUrl, f || undefined, c || undefined, tmpPath);
+          const stat = await fs.promises.stat(tmpPath);
+          if (stat.size > config.maxDownloadBytes) {
+            await fs.promises.unlink(tmpPath).catch(() => {});
+            return res.status(502).json({ success: false, error: 'That file is too large.', code: 'upstream_error' });
+          }
+          res.setHeader('Content-Type', isAudio ? 'audio/mp4' : 'video/mp4');
+          res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+          res.setHeader('Content-Length', stat.size);
+          const stream = fs.createReadStream(tmpPath);
+          stream.on('error', () => res.end());
+          stream.on('close', () => fs.promises.unlink(tmpPath).catch(() => {}));
+          stream.pipe(res);
+        } catch (err) {
+          await ytdlp.cleanupDownloadFiles(tmpPath);
+          throw err;
+        }
+        return;
+      }
       res.setHeader('Content-Type', isAudio ? 'audio/mp4' : 'video/mp4');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      if (size) res.setHeader('Content-Length', size);
       ytdlp.streamDownload(res, cleanUrl, f || undefined, c || undefined);
       return;
     }
@@ -363,13 +428,29 @@ app.get('/dl', async (req, res) => {
     if (!u) {
       return res.status(400).json({ success: false, error: 'Nothing to download.', code: 'invalid_url' });
     }
-    const payload = `u=${u}`;
+    const payload = directPayload({ url: u, size: size || undefined });
     if (!verifyDownload(payload, sig)) {
       return res.status(403).json({ success: false, error: 'That download link is not valid.', code: 'forbidden' });
     }
     const cleanUrl = await validateProxyUrl(u);
     const urlExt = (new URL(cleanUrl).pathname.match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i) || [])[1] || 'mp4';
     const filename = safeFilename(req.query.name || 'snatcher_media', urlExt.toLowerCase());
+    // Content-Length, in order: the signed size the resolver knew, a HEAD
+    // on the upstream, the GET response's own header. Without one the
+    // browser shows an unknown total and no progress.
+    let contentLength = size;
+    if (!contentLength) {
+      try {
+        const head = await axios.head(cleanUrl, {
+          timeout: config.upstreamTimeoutMs,
+          headers: { 'User-Agent': 'Snatcher/3.0' },
+        });
+        const len = parseInt(head.headers['content-length'], 10);
+        if (Number.isFinite(len) && len > 0) contentLength = len;
+      } catch {
+        // No size from HEAD — stream without one, as before.
+      }
+    }
     const upstream = await axios.get(cleanUrl, {
       responseType: 'stream',
       timeout: config.upstreamTimeoutMs,
@@ -379,7 +460,8 @@ app.get('/dl', async (req, res) => {
     const contentType = upstream.headers['content-type'] || 'application/octet-stream';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    if (upstream.headers['content-length']) {
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+    else if (upstream.headers['content-length']) {
       res.setHeader('Content-Length', upstream.headers['content-length']);
     }
     let bytes = 0;
