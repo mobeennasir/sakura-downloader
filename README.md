@@ -1,201 +1,137 @@
-# 🌸 Sakura Downloader v2.0 🌸
+# Snatcher
 
-![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)
-![Express.js](https://img.shields.io/badge/Express.js-000000?style=for-the-badge&logo=express&logoColor=white)
-![EJS](https://img.shields.io/badge/EJS-AE2F24?style=for-the-badge&logo=ejs&logoColor=white)
-![Version](https://img.shields.io/badge/version-2.0.0-pink?style=for-the-badge)
-![License](https://img.shields.io/badge/license-MIT-brightgreen?style=for-the-badge)
+Paste a link, keep the file. A media downloader for six platforms — YouTube,
+Instagram, Facebook, TikTok, Twitter/X and Pinterest — with one URL bar, real
+downloads (not new tabs), and batch mode.
 
-```text
-                    🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸
-                   🌸                                    🌸
-              🌸       ███████╗  █████╗  ██╗  ██╗██╗   ██╗██████╗   █████╗      🌸
-             🌸        ██╔════╝ ██╔══██╗ ██║ ██╔╝██║   ██║██╔══██╗ ██╔══██╗      🌸
-            🌸         ███████╗ ███████║ █████╔╝ ██║   ██║██████╔╝ ███████║      🌸
-           🌸          ╚════██║ ██╔══██║ ██╔═██╗ ██║   ██║██╔══██╗ ██╔══██║      🌸
-          🌸           ███████║ ██║  ██║ ██║  ██╗ ╚██████╔╝██║  ██║ ██║  ██║      🌸
-         🌸            ╚══════╝ ╚═╝  ╚═╝ ╚═╝  ╚═╝  ╚═════╝ ╚═╝  ╚═╝ ╚═╝  ╚═╝      🌸
-        🌸                                                                          🌸
-         🌸               ✨ Where Cherry Blossoms Meet Media Magic ✨               🌸
-          🌸                  🌸 Download with Elegance & Grace 🌸                   🌸
-           🌸                                                                      🌸
-            🌸                       🌸 🌸 🌸 🌸 🌸 🌸 🌸                       🌸
-             🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸 🌸
-```
+Snatcher is a full rebuild of the old Sakura Downloader (v3.0.0): new name,
+new Midnight theme, new backend, new frontend, real downloads, and a test
+suite. Everything below describes the rebuilt app.
 
-🌸 **Welcome to Sakura Downloader v2.0** - where technology blooms like cherry blossoms in spring, now more beautiful than ever! 🌸
+## What it does
 
-## 🌸✨ What's New in v2.0 - The Cherry Blossom Renaissance ✨🌸
+- **YouTube** — pick a video, choose a format (2160p down to 1440p, 1080p,
+  720p, 480p, audio only), download the file.
+- **Instagram** — reels and posts. A reel gives you its video; a post or
+  carousel gives you every photo and video inside it, each with its own
+  download button.
+- **Pinterest** — pins, photos and videos in high quality. The photo/video
+  switch filters the results; videos are converted from HLS to a real mp4.
+- **TikTok, Facebook, Twitter/X** — paste a link, get the video.
+- **Batch** — up to 10 links at once, one per line. Each link is checked on
+  its own; one bad link never stops the rest.
+- **Real downloads** — files stream through a signed same-origin proxy
+  (`/dl`), so the Download button actually downloads.
+- **Error pages** — a different animated page per failure: "Lost in space."
+  (404), "That link went nowhere.", "That one is locked.", "Too fast. Slow
+  down.", "Took too long.", "Something broke on our side."
 
-### 🌺 Major Blooms of Improvement
+## Theme — Midnight
 
-- **🌙 Complete UI Renaissance**: Transformed from a simple garden into a breathtaking cherry blossom sanctuary with modern aesthetics
-- **📱 Multi-Platform Integration**: Enhanced support for all major social media platforms
-- **🔄 Enhanced Pinterest Experience**: Improved scraping with graceful error handling and better reliability
-- **📱 Mobile-First Design**: Fully responsive across all devices, from desktop gardens to mobile blossoms
+Dark midnight-blue ground, cool white ink, one azure signal, square-cut
+surfaces, Mona Sans 300 expanded. No warm accents, no glow, no rounded
+corners, no light sections. The look is built for the name: a snatcher works
+in the dark.
 
-### 🌿 Technical Garden Enhancements
+## Quick start
 
-- **🏗️ Modular Architecture**: Restructured codebase like a well-organized Japanese garden
-- **🛡️ Enhanced Error Handling**: Graceful error recovery with user-friendly messages
-- **⚡ Performance Optimization**: Faster downloads with improved memory management
-- **🐳 Docker Optimization**: Multi-stage builds for smaller, more efficient containers
-- **🔄 Batch Processing**: Collect multiple petals in one graceful motion
-
-### 🌸 New Features That Make the Garden Bloom
-
-- **📱 Complete Platform Support**: Instagram, Pinterest, TikTok, Facebook, and Twitter integration
-- **🎨 Modern UI/UX**: Beautiful loading states and smooth animations
-- **🔄 Batch Downloads**: Process multiple URLs simultaneously
-- **📱 Responsive Design**: Perfect experience on all screen sizes
-
-## 🌸 Recent Changes - The Garden's Growth
-
-### 🌱 New Seeds Planted (Added Files)
-- **`src/instagram.js`** - The Instagram cherry blossom tree, complete with posts, reels, and story support
-- **`src/facebook.js`** - Facebook video downloader for posts, reels, and stories
-- **`src/twitter.js`** - Twitter video downloader for tweets and media content
-- **`views/instagram.ejs`** - A beautiful new temple dedicated to Instagram downloads
-- **`views/facebook.ejs`** - Elegant interface for Facebook downloads
-- **`views/twitter.ejs`** - Sleek design for Twitter media downloading
-- **`public/js/common.js`** - Shared utilities and theme management, like garden tools for all platforms
-- **`public/css/styles.css`** - Complete garden renovation with modern aesthetics
-
-### 🌿 Enhanced Garden Paths (Modified Files)
-- **`index.js`** - Added all platform routes and improved error handling like better garden pathways
-- **`views/main.ejs`** - Updated layout with new navigation and platform cards
-- **`src/pintScrape.js`** - Enhanced Pinterest scraping with graceful error handling
-- **`Dockerfile`** - Optimized for smaller image size and better performance
-- **`test-server.js`** - Updated testing for all supported platforms
-
-### 🌺 Technical Garden Improvements
-- **🏗️ Modular Architecture**: Restructured codebase like a well-organized Japanese garden
-- **🛡️ Enhanced Error Handling**: Graceful error recovery with user-friendly messages
-- **⚡ Performance Optimization**: Faster downloads with improved memory management
-- **📱 Mobile-First Design**: Fully responsive across all devices
-- **🌓 Theme System**: Persistent dark/light theme preferences
-
-## 🌸✨ Features That Bloom with Beauty ✨🌸
-
--   🎋 **Graceful Web Interface**: Navigate with the elegance of falling cherry blossoms, each platform has its own serene space
--   🌏 **Garden of Platforms**: From the bustling digital gardens to quiet social streams, download from your favorite platforms
--   🏮 **Smart Metadata Extraction**: Like collecting memories, we gather titles, descriptions, and preview images
--   🍃 **Ephemeral Storage**: Files rest briefly like petals on water before gracefully cleaning themselves
--   📱 **Responsive Design**: Beautiful on all devices, from desktop gardens to mobile blossoms
--   🔄 **Batch Downloads**: Collect multiple petals in one graceful motion
-
-### Supported Platforms 🚀
-
--   ✅ **Instagram** - Posts, Reels & Stories
--   ✅ **Pinterest** - Images and Videos with enhanced scraping
--   ✅ **TikTok** - Videos without watermark in best quality
--   ✅ **Facebook** - Videos from posts, reels, and stories
--   ✅ **Twitter** - Videos from tweets with high quality
-
-## 🌱 Installation — Plant Your Sakura Tree
-
-### Prerequisites 🌸
-
--   🌿 Node.js (v14 or higher recommended) - The fertile soil for our app
--   📦 npm (comes with Node.js) - The gardening tools we need
-
-### Setup 🎋
+Requires Node.js 22+, ffmpeg, and the [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+binary on your PATH.
 
 ```bash
-git clone https://github.com/mubeen1/sakura-downloader.git
+git clone https://github.com/mobeennasir/sakura-downloader.git
 cd sakura-downloader
-npm install
-node index.js
+npm ci
+cp .env.example .env   # optional; all settings have defaults
+npm start              # http://localhost:3000
+npm test               # vitest + supertest suite (44 tests)
 ```
 
-Open your browser and step into the serene garden at `http://localhost:3000` 🌸
+## How it works
 
-### 🐳 Docker Deployment — Spread the Sakura Magic Everywhere 🌸
+```
+paste a link
+  → validate (host allowlist + SSRF check: no private IPs, no lookalikes)
+  → resolve (cache + queue + one in-flight call per URL)
+  → per-platform adapter (yt-dlp primary for YouTube/Pinterest/TikTok,
+    btch-downloader for the rest, each with a fallback)
+  → typed media items [{ type: 'video' | 'image', url, thumbnail, ... }]
+  → signed /dl link per item → the file streams to the user
+```
 
-Like cherry blossoms traveling on the wind, deploy your beautiful downloader anywhere with grace. This containerized garden blooms perfectly on platforms like Koyeb, Heroku, and beyond! 🌱
+YouTube uses yt-dlp's `tv_embedded` player client (full format range) with
+`android` as fallback. Pinterest videos arrive as HLS playlists, so the proxy
+converts them to mp4 with ffmpeg instead of handing over a playlist file.
+TikTok is resolved by yt-dlp directly, with btch-downloader as fallback —
+there is no third-party API in the middle.
+
+Every failure is one of eleven named errors (`src/errors.js`), each with its
+own HTTP status, short message and animated error page. Connection failures
+never leak as "Something broke on our side" — that message is reserved for
+genuinely unknown errors, and those are logged server-side.
+
+## Stack
+
+Node.js 22 · Express 5 · EJS · yt-dlp · btch-downloader 6.4 · helmet ·
+express-rate-limit · pino + pino-pretty · lru-cache · p-queue · vitest +
+supertest.
+
+## Configuration
+
+See `.env.example`. The important ones: `PORT` (default 3000), `YTDLP_PATH`
+(default `yt-dlp`), `DOWNLOAD_SECRET` (signs `/dl` URLs; random per boot if
+unset), `LOG_PRETTY` (1 = colourised pino-pretty logs, 0 = raw JSON).
+
+## Project structure
+
+```
+server.js            Express app: routes, rate limit, helmet, signed /dl proxy
+src/
+  config.js          env config with defaults
+  logger.js          pino + pino-pretty
+  errors.js          one error taxonomy (code, status, message, error page)
+  validate.js        host allowlist + SSRF/DNS checks
+  download-links.js  HMAC signing + signed download URL builders
+  yt-dlp.js          yt-dlp binary wrapper (info, streaming, client fallback)
+  cache.js           LRU cache + in-flight coalescing + upstream queue
+  media.js           the universal resolver: every platform → typed items
+public/
+  css/styles.css     Midnight theme tokens, layout, error animations
+  js/snatcher.js     one shared frontend module (fetch, results, batch, history)
+  favicon.svg        azure bolt on a dark square
+  og.png             social preview image
+views/
+  home.ejs           hero URL bar + platform grid + recent links
+  platform.ejs       one template for all six platforms
+  error.ejs          animated error pages, one per error type
+  maintenance.ejs    maintenance page
+  partials/          head, header, footer, icons (inline SVG, no icon font)
+tests/               vitest + supertest (run with `npm test`)
+```
+
+## Deploy
+
+Docker image (multi-stage, `node:22-alpine`, non-root, ffmpeg + yt-dlp
+installed, healthcheck on `/health`):
 
 ```bash
-# Plant the Sakura seeds (build the image)
-docker build -t sakura-downloader .
-
-# Let your garden bloom (run the container)
-docker run -p 3000:3000 sakura-downloader
+docker build -t snatcher .
+docker run -p 3000:3000 snatcher
 ```
 
-## 📁 Project Structure — The Sacred Garden Layout v2.0 🏮
+On Koyeb, deploy from the public repo URL. Koyeb does not auto-deploy public
+repos — after pushing, trigger the build manually in the Koyeb dashboard.
 
-```
-sakura-downloader/
-├── public/                        # 🎨 Static assets shrine
-│   ├── css/
-│   │   └── styles.css            # 🌸 Complete UI overhaul with modern design
-│   ├── js/
-│   │   ├── common.js            # 🌿 Shared utilities and theme management
-│   │   └── pinterest.js         # 🎋 Pinterest frontend logic
-├── src/                           # 🌿 The heart of our blooming garden
-│   ├── facebook.js               # 📘 Facebook video downloader
-│   ├── instagram.js              # 📸 Instagram downloader (posts, reels, stories)
-│   ├── pinterest.js              # 📌 Pinterest photo downloader
-│   ├── pintScrape.js             # 🎬 Pinterest video scraper
-│   ├── tiktok.js                 # 🎵 TikTok video downloader
-│   └── twitter.js                # 🐦 Twitter video downloader
-├── views/                         # 🏮 Temple views and layouts
-│   ├── main.ejs                   # 🌸 Updated homepage garden
-│   ├── facebook.ejs               # 📘 Facebook download shrine
-│   ├── instagram.ejs              # 📸 Instagram download shrine
-│   ├── pinterest.ejs              # 📌 Pinterest download shrine
-│   ├── tiktok.ejs                 # 🎵 TikTok download shrine
-│   ├── twitter.ejs                # 🐦 Twitter download shrine
-│   └── error.ejs                  # 🚩 Graceful error handling page
-├── index.js                       # 🌿 The heart of our blooming server
-├── package.json                   # 📜 Project essence and dependencies
-├── Dockerfile                     # 🐳 Optimized container configuration
-├── test-server.js                 # 🧪 Testing utilities
-└── README.md                      # 📚 This beautiful guide you're reading
-```
+## Honest limits
 
-## 🌸 Usage — Walk Through the Cherry Blossom Path
+- Instagram, TikTok and Facebook fetch from the platform's public pages.
+  Whether they work depends on the server's IP: datacentre IPs get
+  bot-checked or blocked, and private or login-walled posts never work.
+  Failures surface as plain error messages, never as a fake success.
+- YouTube quality depends on the player client that answers; the app tries
+  `tv_embedded` first (full range) and falls back to `android` (360p).
+- Only download media you have the right to keep.
 
-1.  🏮 From the main garden (homepage), choose your favorite platform shrine
-2.  🎋 Enter the dedicated temple for your platform (e.g., `/instagram`, `/facebook`, `/twitter`)
-3.  📝 Gracefully paste your media URL into the sacred input field
-4.  🌸 Press the **Download** button and watch the magic unfold
-5.  ✨ Witness as the app extracts your media with the precision of a master gardener, complete with beautiful thumbnail preview
-6.  📊 Watch your downloads bloom with real-time progress indicators
-7.  🌓 Toggle between day and night themes like the changing seasons
+## License
 
-## 🛤️ API Endpoints — The Sacred Pathways
-
-| Method | Route                      | Description                                                              |
-| :----- | :------------------------- | :----------------------------------------------------------------------- |
-| `GET`  | `/`                        | Renders the main homepage with platform selection                        |
-| `GET`  | `/:platform`               | Renders the download page for the specified platform                     |
-| `POST` | `/:platform/download`      | Processes a URL, downloads the media, and returns file paths             |              |
-| `GET`  | `/health`                  | Health check endpoint for monitoring                                     |
-| `GET`  | `/error`                   | Displays a generic error page with a custom message                     |
-
-## 🤝 Contributing to the Garden
-
-We welcome all gardeners to contribute to this blooming sanctuary! Whether you're:
-
-- 🌿 Adding new platform support
-- 🐛 Fixing bugs (removing pests from the garden)
-- 🎨 Improving the UI (making the blossoms more beautiful)
-- 📚 Writing documentation (sharing gardening wisdom)
-
-Your contributions help the Sakura garden grow stronger and more beautiful! 🌱
-
-## 📄 License
-
-MIT License - as free and beautiful as cherry blossoms in the wind.
-
----
-
-```text
-                        🌸 Thank you for visiting our v2.0 garden! 🌸
-                       🌱 May your downloads be as swift as 🌱
-                      🍃 falling petals and twice as beautiful 🍃
-                       🌸 🌸 🌸 🌸 🌸 🌸 🌸
-```
-
-✨ **Welcome to the Cherry Blossom Renaissance - Sakura Downloader v2.0!** ✨
+ISC

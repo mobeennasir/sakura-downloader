@@ -1,0 +1,61 @@
+<%- include('partials/head', { title: platform.title, description: platform.subtitle }) %>
+<body data-page="platform" data-platform="<%= platform.key %>">
+<%- include('partials/icons') %>
+<%- include('partials/header', { platforms, current: platform.key }) %>
+<main>
+  <section class="page-head">
+    <div class="container">
+      <a class="back-link" href="/">
+        <svg aria-hidden="true"><use href="#i-arrow-left" /></svg>
+        Back to Snatcher
+      </a>
+      <span class="platform-icon" aria-hidden="true"><svg><use href="#i-<%= platform.key %>" /></svg></span>
+      <h1><%= platform.title %></h1>
+      <p class="lede"><%= platform.subtitle %></p>
+
+      <form id="platformForm" class="url-bar" novalidate>
+        <label for="urlInput" class="visually-hidden">Media link</label>
+        <input type="url" id="urlInput" name="url" placeholder="<%= platform.placeholder %>" autocomplete="off" spellcheck="false" />
+        <button type="button" class="btn btn--ghost" id="pasteBtn" title="Paste from clipboard">
+          <svg aria-hidden="true"><use href="#i-paste" /></svg>
+          Paste
+        </button>
+        <button type="submit" class="btn btn--primary" id="snatchBtn">
+          <svg aria-hidden="true"><use href="#i-download" /></svg>
+          Snatch it
+        </button>
+      </form>
+
+      <% if (platform.key === 'pinterest') { %>
+        <fieldset class="segmented segmented--spaced" id="mediaFilter">
+          <legend class="visually-hidden">Show</legend>
+          <label><input type="radio" name="mediaType" value="all" checked /> All</label>
+          <label><input type="radio" name="mediaType" value="photo" /> Photos</label>
+          <label><input type="radio" name="mediaType" value="video" /> Videos</label>
+        </fieldset>
+      <% } %>
+
+      <p class="status-line" id="statusLine" aria-live="polite"></p>
+      <div id="results" aria-live="polite"></div>
+
+      <div class="howto">
+        <h2>How it works</h2>
+        <ol>
+          <li>Paste a <%= platform.name %> link above.</li>
+          <% if (platform.key === 'youtube') { %>
+            <li>Pick a format — video quality or audio only.</li>
+          <% } else if (platform.key === 'instagram') { %>
+            <li>A reel gives you its video. A post gives you every photo and video inside it.</li>
+          <% } else if (platform.key === 'pinterest') { %>
+            <li>Use the Photos / Videos switch to filter, or take everything.</li>
+          <% } else { %>
+            <li>Snatcher pulls the media out.</li>
+          <% } %>
+          <li>Press Download on the one you want — the file saves to your device.</li>
+        </ol>
+        <p class="hint"><%= platform.hint %></p>
+      </div>
+    </div>
+  </section>
+</main>
+<%- include('partials/footer') %>

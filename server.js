@@ -1,0 +1,425 @@
+'use strict';
+
+// Snatcher — paste a link, grab the media. Express 5 + EJS.
+// The server is a resolver + signed download proxy: it never stores media,
+// and /dl only streams URLs Snatcher itself produced (HMAC-signed).
+
+const express = require('express');
+const helmet = require('helmet');
+const compression = require('compression');
+const rateLimit = require('express-rate-limit');
+const axios = require('axios');
+const path = require('path');
+
+const config = require('./src/config');
+const logger = require('./src/logger');
+const { SnatcherError, Errors, errorPageFor, toSnatcherError } = require('./src/errors');
+const { validateMediaUrl, validateProxyUrl, detectPlatform } = require('./src/validate');
+const { signDownload, verifyDownload, buildYtDlpDownloadUrl } = require('./src/download-links');
+const { resolveMedia, resolveForBatch, getYouTubeInfo } = require('./src/media');
+const ytdlp = require('./src/yt-dlp');
+const { FORMAT_ID_RE } = ytdlp;
+const { cachedResolve, cacheStats, queue } = require('./src/cache');
+
+const app = express();
+app.set('trust proxy', 1); // Koyeb terminates TLS in front of us.
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+// --- middleware ------------------------------------------------------------
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        mediaSrc: ["'self'", 'https:'],
+        connectSrc: ["'self'"],
+      },
+    },
+  })
+);
+app.use(compression());
+app.use(express.json({ limit: '64kb' }));
+app.use(express.urlencoded({ extended: false, limit: '64kb' }));
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
+
+// Request log: method + pathname + status + ms only. Never the query string
+// or body — those can carry a pasted (possibly private) post URL.
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const pathname = req.path;
+    logger.info(
+      { method: req.method, path: pathname, status: res.statusCode, ms: Date.now() - start },
+      'request'
+    );
+  });
+  next();
+});
+
+// Downloads + API calls are the abusable surface: 60/min per IP.
+const apiLimiter = rateLimit({
+  windowMs: config.rateLimitWindowMs,
+  max: config.rateLimitMax,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  handler: (req, res) => {
+    const err = Errors.rateLimited();
+    if (req.path.startsWith('/api/') || req.path === '/dl') {
+      return res.status(429).json({ success: false, error: err.message, code: err.code });
+    }
+    return res.redirect('/error?code=rate_limited');
+  },
+});
+app.use(['/api', '/dl'], apiLimiter);
+
+// --- platform pages --------------------------------------------------------
+const PLATFORMS = {
+  instagram: {
+    key: 'instagram',
+    name: 'Instagram',
+    title: 'Instagram Downloader',
+    subtitle: 'Reels, posts and carousels — every photo and video inside, yours to pick.',
+    placeholder: 'Paste your Instagram link here...',
+    hint: 'Works with reels, single posts and carousel posts.',
+  },
+  youtube: {
+    key: 'youtube',
+    name: 'YouTube',
+    title: 'YouTube Downloader',
+    subtitle: 'Pick a video, choose the quality, grab the file.',
+    placeholder: 'Paste your YouTube link here...',
+    hint: 'Videos and Shorts. Pick a format after the info loads.',
+  },
+  pinterest: {
+    key: 'pinterest',
+    name: 'Pinterest',
+    title: 'Pinterest Downloader',
+    subtitle: 'Pins, photos and videos in high quality.',
+    placeholder: 'Paste your Pinterest link here...',
+    hint: 'Use the Photos / Videos switch to filter the results.',
+  },
+  tiktok: {
+    key: 'tiktok',
+    name: 'TikTok',
+    title: 'TikTok Downloader',
+    subtitle: 'Videos without the watermark.',
+    placeholder: 'Paste your TikTok link here...',
+    hint: 'Paste any TikTok video link.',
+  },
+  facebook: {
+    key: 'facebook',
+    name: 'Facebook',
+    title: 'Facebook Downloader',
+    subtitle: 'Videos from posts, reels and watch.',
+    placeholder: 'Paste your Facebook link here...',
+    hint: 'Paste a Facebook video, reel or post link.',
+  },
+  twitter: {
+    key: 'twitter',
+    name: 'Twitter/X',
+    title: 'Twitter/X Downloader',
+    subtitle: 'Videos from posts, in the best quality available.',
+    placeholder: 'Paste your Twitter/X link here...',
+    hint: 'Paste a tweet link with a video.',
+  },
+};
+
+const PLATFORM_KEYS = Object.keys(PLATFORMS);
+
+// --- helpers ---------------------------------------------------------------
+function safeFilename(title, ext) {
+  const base = String(title || 'snatcher')
+    .replace(/[^\w\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '_')
+    .slice(0, 80);
+  return `${base || 'snatcher'}.${ext || 'mp4'}`;
+}
+
+function withDownloadLinks(platform, title, items) {
+  return items.map((item, i) => {
+    const filename = safeFilename(`${title || platform}_${i + 1}`, item.ext);
+    let downloadUrl;
+    if (item.ytdlp && item.ytdlp.url && item.ytdlp.formatId) {
+      // HLS / segmented media: the proxy converts it to a real file.
+      downloadUrl = buildYtDlpDownloadUrl({
+        url: item.ytdlp.url,
+        formatId: item.ytdlp.formatId,
+        ext: item.ytdlp.ext || 'mp4',
+        client: item.ytdlp.client,
+        filename,
+      });
+    } else {
+      const payload = `u=${item.url}`;
+      downloadUrl = `/dl?u=${encodeURIComponent(item.url)}&name=${encodeURIComponent(filename)}&sig=${signDownload(payload)}`;
+    }
+    return {
+      ...item,
+      downloadUrl,
+      filename,
+    };
+  });
+}
+
+function sendApiError(res, err) {
+  const e = toSnatcherError(err);
+  logger.warn({ code: e.code, status: e.status }, 'api error');
+  return res.status(e.status).json({ success: false, error: e.message, code: e.code });
+}
+
+// --- health ----------------------------------------------------------------
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+app.get('/health/ready', async (req, res) => {
+  const ytdlpVersion = await ytdlp.binaryAvailable();
+  res.status(200).json({
+    status: ytdlpVersion ? 'ready' : 'degraded',
+    checks: {
+      ytdlp: ytdlpVersion ? `ok (${ytdlpVersion})` : 'missing',
+      cache: cacheStats(),
+      queue: { pending: queue.pending, size: queue.size },
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// --- pages -----------------------------------------------------------------
+app.get('/', (req, res) => {
+  res.render('home', { platforms: PLATFORMS });
+});
+
+app.get('/error', (req, res) => {
+  const code = typeof req.query.code === 'string' ? req.query.code : 'unknown';
+  const page = errorPageFor(code);
+  res.status(page.status).render('error', { code, page, platforms: PLATFORMS });
+});
+
+app.get('/:platform', (req, res, next) => {
+  const platform = req.params.platform.toLowerCase();
+  // Fixed routes defined below (e.g. /dl) must not be swallowed by this
+  // catch-all — let them fall through.
+  if (platform === 'dl') return next();
+  if (platform === 'favicon.ico') return res.status(404).end();
+  const cfg = PLATFORMS[platform];
+  if (!cfg) return res.redirect('/error?code=not_found');
+  res.render('platform', { platform: cfg, platforms: PLATFORMS });
+});
+
+// --- YouTube: two-step flow (info → format → convert) -----------------------
+app.post('/api/youtube/info', async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url) return res.status(400).json({ success: false, error: 'URL is required', code: 'invalid_url' });
+    const info = await getYouTubeInfo(url);
+    res.json({ success: true, data: info });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+
+app.post('/api/youtube/convert', async (req, res) => {
+  try {
+    const { url, formatId } = req.body || {};
+    if (!url || !formatId) {
+      return res.status(400).json({ success: false, error: 'URL and format are required', code: 'invalid_url' });
+    }
+    // formatId goes to a spawned process: only yt-dlp format selectors.
+    if (!FORMAT_ID_RE.test(formatId)) {
+      throw Errors.invalidUrl('That format is not valid.');
+    }
+    const { url: cleanUrl } = await validateMediaUrl(url, 'youtube');
+    const info = await getYouTubeInfo(cleanUrl);
+    const format = info.formats.find((f) => f.id === formatId);
+    if (!format) throw Errors.invalidUrl('That format is not available for this video.');
+    const filename = safeFilename(info.title, format.ext);
+    const downloadUrl = buildYtDlpDownloadUrl({
+      url: cleanUrl,
+      formatId,
+      ext: format.ext,
+      client: info.client,
+      filename,
+    });
+    res.json({
+      success: true,
+      data: {
+        downloadUrl,
+        title: info.title,
+        format: format.type,
+        quality: format.quality,
+        filename,
+      },
+    });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+
+// --- per-platform resolve ----------------------------------------------------
+app.post('/:platform/download', async (req, res) => {
+  try {
+    const platform = req.params.platform.toLowerCase();
+    if (!PLATFORM_KEYS.includes(platform) || platform === 'youtube') {
+      throw Errors.unsupportedPlatform(
+        platform === 'youtube'
+          ? 'YouTube uses the info → format → convert flow.'
+          : undefined
+      );
+    }
+    const { url, mediaType } = req.body || {};
+    if (!url) {
+      return res.status(400).json({ success: false, error: 'URL is required', code: 'invalid_url' });
+    }
+    const result = await resolveMedia(url, platform);
+    let items = result.items;
+    // Pinterest keeps its photo/video selector: it filters the unified items.
+    if (platform === 'pinterest' && (mediaType === 'photo' || mediaType === 'video')) {
+      const want = mediaType === 'photo' ? 'image' : 'video';
+      const filtered = items.filter((item) => item.type === want);
+      if (filtered.length > 0) items = filtered;
+    }
+    res.json({
+      success: true,
+      platform,
+      title: result.title,
+      thumbnail: result.thumbnail,
+      mediaItems: withDownloadLinks(platform, result.title, items),
+    });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+
+// --- batch: many links, one call ---------------------------------------------
+app.post('/api/batch', async (req, res) => {
+  try {
+    const { urls } = req.body || {};
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ success: false, error: 'Send an array of URLs.', code: 'invalid_url' });
+    }
+    if (urls.length > config.batchMaxUrls) {
+      return res.status(400).json({
+        success: false,
+        error: `At most ${config.batchMaxUrls} links per batch.`,
+        code: 'invalid_url',
+      });
+    }
+    const results = await Promise.all(
+      urls.map(async (rawUrl) => {
+        try {
+          const result = await resolveForBatch(rawUrl);
+          return {
+            url: rawUrl,
+            platform: result.platform,
+            success: true,
+            title: result.title,
+            thumbnail: result.thumbnail,
+            mediaItems: withDownloadLinks(result.platform, result.title, result.items),
+          };
+        } catch (err) {
+          const e = toSnatcherError(err);
+          return { url: rawUrl, platform: detectPlatform(rawUrl), success: false, error: e.message, code: e.code };
+        }
+      })
+    );
+    res.json({ success: true, results });
+  } catch (err) {
+    sendApiError(res, err);
+  }
+});
+
+// --- signed download proxy ---------------------------------------------------
+// /dl streams a file Snatcher resolved. The signature proves Snatcher made
+// the link, so this is never an open proxy. `ytdlp` items stream through
+// yt-dlp with the chosen format (it converts HLS to mp4); everything else
+// streams the CDN URL.
+app.get('/dl', async (req, res) => {
+  try {
+    const { u, ytdlp: ytdlpUrl, f, ext, c, sig } = req.query;
+    if (ytdlpUrl) {
+      const payload = `ytdlp=${ytdlpUrl}&f=${f || ''}&ext=${ext || ''}&c=${c || ''}`;
+      if (!verifyDownload(payload, sig)) {
+        return res.status(403).json({ success: false, error: 'That download link is not valid.', code: 'forbidden' });
+      }
+      const platform = detectPlatform(ytdlpUrl);
+      if (!platform) throw Errors.invalidUrl();
+      const { url: cleanUrl } = await validateMediaUrl(ytdlpUrl, platform);
+      if (f && !FORMAT_ID_RE.test(f)) throw Errors.invalidUrl();
+      const safeExt = /^[a-z0-9]{2,5}$/.test(ext || '') ? ext : 'mp4';
+      const filename = safeFilename(req.query.name || 'snatcher_media', safeExt);
+      const isAudio = safeExt === 'm4a' || safeExt === 'mp3' || safeExt === 'opus' || safeExt === 'webm';
+      res.setHeader('Content-Type', isAudio ? 'audio/mp4' : 'video/mp4');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      ytdlp.streamDownload(res, cleanUrl, f || undefined, c || undefined);
+      return;
+    }
+
+    if (!u) {
+      return res.status(400).json({ success: false, error: 'Nothing to download.', code: 'invalid_url' });
+    }
+    const payload = `u=${u}`;
+    if (!verifyDownload(payload, sig)) {
+      return res.status(403).json({ success: false, error: 'That download link is not valid.', code: 'forbidden' });
+    }
+    const cleanUrl = await validateProxyUrl(u);
+    const urlExt = (new URL(cleanUrl).pathname.match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i) || [])[1] || 'mp4';
+    const filename = safeFilename(req.query.name || 'snatcher_media', urlExt.toLowerCase());
+    const upstream = await axios.get(cleanUrl, {
+      responseType: 'stream',
+      timeout: config.upstreamTimeoutMs,
+      maxContentLength: config.maxDownloadBytes,
+      headers: { 'User-Agent': 'Snatcher/3.0' },
+    });
+    const contentType = upstream.headers['content-type'] || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    if (upstream.headers['content-length']) {
+      res.setHeader('Content-Length', upstream.headers['content-length']);
+    }
+    let bytes = 0;
+    upstream.data.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > config.maxDownloadBytes) upstream.data.destroy();
+    });
+    upstream.data.on('error', () => {
+      if (!res.headersSent) res.status(502).end();
+      else res.end();
+    });
+    upstream.data.pipe(res);
+  } catch (err) {
+    if (!res.headersSent) sendApiError(res, err);
+    else res.end();
+  }
+});
+
+// --- errors ------------------------------------------------------------------
+app.use((req, res) => {
+  if (req.path.startsWith('/api/') || req.path === '/dl') {
+    return res.status(404).json({ success: false, error: 'Not found.', code: 'not_found' });
+  }
+  res.redirect('/error?code=not_found');
+});
+
+app.use((err, req, res, next) => {
+  const e = toSnatcherError(err);
+  logger.error({ err: e, code: e.code }, 'unhandled error');
+  if (req.path.startsWith('/api/') || req.path === '/dl') {
+    return res.status(e.status).json({ success: false, error: e.message, code: e.code });
+  }
+  res.redirect(`/error?code=${e.code}`);
+});
+
+if (require.main === module) {
+  app.listen(config.port, () => {
+    logger.info(`Snatcher server running at http://localhost:${config.port}`);
+    logger.info(`Platforms: ${PLATFORM_KEYS.map((k) => `/${k}`).join(', ')}`);
+  });
+}
+
+module.exports = app;

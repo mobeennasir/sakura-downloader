@@ -1,0 +1,76 @@
+<%- include('partials/head', { title: 'Snatcher — grab any video, keep the file', description: 'Paste a link from YouTube, Instagram, Facebook, TikTok, Twitter/X or Pinterest and download the video or images in one click.' }) %>
+<body data-page="home">
+<%- include('partials/icons') %>
+<%- include('partials/header', { platforms }) %>
+<main>
+  <section class="hero">
+    <div class="container">
+      <div class="settle">
+        <h1>Grab any video. Keep the file.</h1>
+        <p class="hero-lede">Paste a link from any of six platforms and take the file.</p>
+      </div>
+
+      <div class="mode-toggle" role="group" aria-label="Download mode">
+        <button type="button" id="modeSingleBtn" aria-pressed="true">Single link</button>
+        <button type="button" id="modeBatchBtn" aria-pressed="false">Batch</button>
+      </div>
+
+      <form id="singleForm" class="url-bar" novalidate>
+        <label for="urlInput" class="visually-hidden">Media link</label>
+        <input type="url" id="urlInput" name="url" placeholder="Paste a link — YouTube, Instagram, TikTok, Pinterest…" autocomplete="off" spellcheck="false" />
+        <button type="button" class="btn btn--ghost" id="pasteBtn" title="Paste from clipboard">
+          <svg aria-hidden="true"><use href="#i-paste" /></svg>
+          Paste
+        </button>
+        <button type="submit" class="btn btn--primary" id="snatchBtn">
+          <svg aria-hidden="true"><use href="#i-download" /></svg>
+          Snatch it
+        </button>
+      </form>
+
+      <div class="batch-box" id="batchBox" hidden>
+        <label for="batchInput" class="visually-hidden">Links, one per line</label>
+        <textarea id="batchInput" placeholder="One link per line — up to 10.&#10;https://www.instagram.com/reel/...&#10;https://www.youtube.com/watch?v=..."></textarea>
+        <div class="batch-actions">
+          <button type="button" class="btn btn--primary" id="batchBtn">
+            <svg aria-hidden="true"><use href="#i-download" /></svg>
+            Snatch all
+          </button>
+          <span class="batch-note">Each link is checked on its own. One bad link never stops the rest.</span>
+        </div>
+      </div>
+
+      <p class="status-line" id="statusLine" aria-live="polite"></p>
+      <div id="results" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="section-head">
+        <h2>Six platforms. One bar.</h2>
+        <p>Pick one, or paste any link above and let Snatcher work it out.</p>
+      </div>
+      <div class="platform-grid">
+        <% for (const key of Object.keys(platforms)) { const p = platforms[key]; %>
+          <a class="platform-card" href="/<%= key %>">
+            <span class="platform-icon" aria-hidden="true"><svg><use href="#i-<%= key %>" /></svg></span>
+            <h3><%= p.name %></h3>
+            <p><%= p.subtitle %></p>
+          </a>
+        <% } %>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="recentSection" hidden>
+    <div class="container">
+      <div class="section-head">
+        <h2>Recent links</h2>
+        <p>Kept on this device only. <button type="button" class="btn btn--ghost" id="clearRecentBtn">Clear</button></p>
+      </div>
+      <ul class="recent-list" id="recentList"></ul>
+    </div>
+  </section>
+</main>
+<%- include('partials/footer') %>

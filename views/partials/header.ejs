@@ -1,0 +1,13 @@
+<header class="site-header">
+  <div class="container">
+    <a class="wordmark" href="/">
+      <svg aria-hidden="true"><use href="#i-logo" /></svg>
+      Snatcher
+    </a>
+    <nav class="site-nav" aria-label="Platforms">
+      <% for (const key of Object.keys(platforms)) { %>
+        <a href="/<%= key %>" <% if (typeof current !== 'undefined' && current === key) { %>aria-current="page"<% } %>><%= platforms[key].name %></a>
+      <% } %>
+    </nav>
+  </div>
+</header>
