@@ -77,6 +77,16 @@ function platformForHost(host) {
   return null;
 }
 
+// Display names for error messages — "an Instagram link", not "a instagram link".
+const PLATFORM_DISPLAY = {
+  instagram: 'an Instagram',
+  youtube: 'a YouTube',
+  pinterest: 'a Pinterest',
+  tiktok: 'a TikTok',
+  facebook: 'a Facebook',
+  twitter: 'a Twitter',
+};
+
 const ALL_HOSTS = new Set(Object.values(PLATFORM_HOSTS).flat());
 
 function isPrivateIp(ip) {
@@ -143,7 +153,9 @@ async function validateMediaUrl(rawUrl, platform) {
   }
   if (!hostAllowed(host, allowed)) {
     if (platform) {
-      throw Errors.invalidUrl(`That is not a ${platform} link.`);
+      throw Errors.invalidUrl(
+        `That is not ${PLATFORM_DISPLAY[platform] || `a ${platform}`} link.`
+      );
     }
     throw Errors.invalidUrl('That link is not from a supported platform.');
   }

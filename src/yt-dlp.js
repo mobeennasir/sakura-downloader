@@ -136,7 +136,11 @@ function mapYtDlpError(stderr) {
   if (/private video|private post|login required|only available to|this video is private/i.test(s)) {
     return Errors.privateOrRemoved();
   }
-  if (/video unavailable|not found|404|no video could be found/i.test(s)) {
+  // Dead / removed videos. yt-dlp's message is "This video is unavailable"
+  // — "video" and "unavailable" are NOT adjacent, so a plain
+  // /video unavailable/ never matches it and the error fell through to a
+  // 502 "the platform stumbled". Match the real wordings.
+  if (/this video is unavailable|this video is no longer available|video unavailable|video has been removed|video no longer available|not found|404|no video could be found/i.test(s)) {
     return Errors.linkNotFound();
   }
   if (/rate.?limit|429|too many requests/i.test(s)) {
@@ -316,4 +320,4 @@ async function binaryAvailable() {
   }
 }
 
-module.exports = { runYtDlp, getInfo, streamDownload, downloadToFile, cleanupDownloadFiles, binaryAvailable, cookiesPath, hasCookies, FORMAT_ID_RE };
+module.exports = { runYtDlp, getInfo, streamDownload, downloadToFile, cleanupDownloadFiles, binaryAvailable, cookiesPath, hasCookies, mapYtDlpError, FORMAT_ID_RE };

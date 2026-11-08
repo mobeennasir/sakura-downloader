@@ -53,7 +53,7 @@ cd sakura-downloader
 npm ci
 cp .env.example .env   # optional; all settings have defaults
 npm start              # http://localhost:3000
-npm test               # vitest + supertest suite (55 tests)
+npm test               # vitest + supertest suite (63 tests)
 ```
 
 ## How it works

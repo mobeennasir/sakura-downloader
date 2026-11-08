@@ -42,6 +42,15 @@ describe('validateMediaUrl', () => {
     ).rejects.toMatchObject({ code: 'invalid_url' });
   });
 
+  it('names the platform properly in the wrong-platform message', async () => {
+    await expect(
+      validateMediaUrl('https://www.tiktok.com/@u/video/1', 'instagram')
+    ).rejects.toThrow('That is not an Instagram link.');
+    await expect(
+      validateMediaUrl('https://www.instagram.com/reel/abc', 'youtube')
+    ).rejects.toThrow('That is not a YouTube link.');
+  });
+
   it('accepts platform subdomains and Pinterest country domains', async () => {
     const a = await validateMediaUrl('https://m.youtube.com/watch?v=x', 'youtube');
     expect(a.platform).toBe('youtube');
