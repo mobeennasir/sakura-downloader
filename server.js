@@ -26,7 +26,7 @@ const {
   directPayload,
   needsBuffer,
 } = require('./src/download-links');
-const { resolveMedia, resolveForBatch, getYouTubeInfo, safeFilename, extractMediaId, captionNameBase } = require('./src/media');
+const { resolveMedia, resolveForBatch, getYouTubeInfo, safeFilename, urlFingerprint, captionNameBase } = require('./src/media');
 const ytdlp = require('./src/yt-dlp');
 const { FORMAT_ID_RE } = ytdlp;
 const { cachedResolve, cacheStats, queue } = require('./src/cache');
@@ -148,14 +148,15 @@ const PLATFORM_KEYS = Object.keys(PLATFORMS);
 
 // --- helpers ---------------------------------------------------------------
 function withDownloadLinks(platform, title, items, sourceUrl, caption) {
-  const id = sourceUrl ? extractMediaId(sourceUrl) : null;
+  const captionBase = captionNameBase(caption);
   // Name base: the caption's first words when the post has one, else the
-  // title, else the platform. The [id] suffix is what keeps every file
-  // distinct — same words, different post, different name.
-  const base = captionNameBase(caption) || title || platform;
+  // title/platform plus the link's fingerprint — the fingerprint is what
+  // keeps every no-caption file distinct. No media id in any name.
+  const base =
+    captionBase ||
+    `${title || platform} ${sourceUrl ? urlFingerprint(sourceUrl) : ''}`.trim();
   return items.map((item, i) => {
     const filename = safeFilename(base, item.ext, {
-      id,
       tag: items.length > 1 ? String(i + 1) : undefined,
     });
     let downloadUrl;
@@ -261,8 +262,9 @@ app.post('/api/youtube/convert', async (req, res) => {
     const info = await getYouTubeInfo(cleanUrl);
     const format = info.formats.find((f) => f.id === formatId);
     if (!format) throw Errors.invalidUrl('That format is not available for this video.');
-    const filename = safeFilename(captionNameBase(info.caption) || info.title, format.ext, {
-      id: extractMediaId(cleanUrl),
+    const captionBase = captionNameBase(info.caption);
+    const base = captionBase || `${info.title} ${urlFingerprint(cleanUrl)}`;
+    const filename = safeFilename(base, format.ext, {
       tag: format.quality,
     });
     // Merged video+audio buffers to disk first (output size unknowable

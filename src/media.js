@@ -87,53 +87,22 @@ function pickCaption(...candidates) {
 }
 
 // ---------------------------------------------------------------------------
-// Download filenames. Every file must get a name that is unique to the
-// media it came from, or the browser sees the same name twice and asks
-// "download again?" — the old scheme was just the title (and Instagram has
-// no title at all, so every reel became "Instagram_media_1.mp4").
-// Name shape: Title [id] tag.ext — the id comes from the source URL
-// (video id, shortcode, tweet id, pin id; a short URL hash when the
-// platform hides its ids), the tag is the quality for YouTube or the item
-// number for multi-item posts. The id/tag are never truncated away: the
-// title is cut to make room for them.
-const FILENAME_MAX = 80;
+// Download filenames. Every file must get a name unique to the media it
+// came from, or the browser sees the same name twice and asks "download
+// again?" — the old scheme was just the title, and Instagram has no
+// title at all, so every reel became "Instagram_media_1.mp4".
+// Name shape: First caption words tag.ext, or Title tag.ext when there
+// is no caption. The tag is the quality for YouTube or the item number
+// for multi-item posts. The tag is never truncated away: the title is
+// cut to make room for it. No media id appears in the name.
 
-function extractMediaId(rawUrl) {
-  let parsed = null;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    parsed = null;
-  }
-  const host = (parsed?.hostname || '').replace(/^www\./, '').replace(/^m\./, '');
-  const path = parsed?.pathname || '';
-  const params = parsed?.searchParams;
-  let id = null;
-  if (host === 'youtu.be') {
-    id = path.split('/').filter(Boolean)[0] || null;
-  } else if (host.endsWith('youtube.com') || host === 'youtube.com') {
-    id =
-      params?.get('v') ||
-      path.match(/^\/(?:shorts|embed|live|v)\/([^/?#]+)/)?.[1] ||
-      null;
-  } else if (host === 'instagram.com') {
-    id = path.match(/^\/(?:reel|reels|p|tv)\/([^/?#]+)/)?.[1] || null;
-  } else if (host === 'tiktok.com') {
-    id = path.match(/\/video\/(\d+)/)?.[1] || null;
-  } else if (host === 'x.com' || host === 'twitter.com') {
-    id = path.match(/\/status\/(\d+)/)?.[1] || null;
-  } else if (host.endsWith('pinterest.com')) {
-    id = path.match(/\/pin\/(\d+)/)?.[1] || null;
-  } else if (host === 'facebook.com' || host === 'fb.watch') {
-    id =
-      params?.get('v') ||
-      params?.get('story_fbid') ||
-      path.match(/^\/(?:videos|reel|watch)\/(\d+)/)?.[1] ||
-      null;
-  }
-  if (id) return String(id).slice(0, 32);
-  // No id in the URL (e.g. a Facebook share link): a short deterministic
-  // hash of the URL still makes every distinct link a distinct filename.
+// A short fingerprint of a URL — looks random, but the same link always
+// gives the same fingerprint. Used only when a download has no caption:
+// it makes every no-caption file's name different from every other post's,
+// while the same file re-downloaded still gets the same name (the one case
+// where the browser SHOULD ask about downloading again). It is not a media
+// id — no platform identifier appears in the filename.
+function urlFingerprint(rawUrl) {
   return crypto.createHash('sha1').update(String(rawUrl || '')).digest('hex').slice(0, 8);
 }
 
@@ -159,8 +128,16 @@ function safeFilename(title, ext, opts = {}) {
     .replace(/[^\w\s\[\]-]/g, '')
     .trim()
     .replace(/\s+/g, '_');
+  // Download filenames. Every file must get a name unique to the media it
+  // came from, or the browser sees the same name twice and asks "download
+  // again?" — the old scheme was just the title, and Instagram has no
+  // title at all, so every reel became "Instagram_media_1.mp4".
+  // Name shape: First caption words tag.ext, or Title tag.ext when there
+  // is no caption. The tag is the quality for YouTube or the item number
+  // for multi-item posts. The tag is never truncated away: the title is
+  // cut to make room for it. No media id appears in the name.
+  const FILENAME_MAX = 80;
   const suffixParts = [];
-  if (opts.id) suffixParts.push(`[${String(opts.id).replace(/[^\w-]/g, '')}]`);
   if (opts.tag) suffixParts.push(String(opts.tag).replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_'));
   const suffix = suffixParts.filter(Boolean).join(' ');
   const room = Math.max(0, FILENAME_MAX - (suffix ? suffix.length + 1 : 0));
@@ -674,6 +651,6 @@ module.exports = {
   pickCaption,
   captionNameBase,
   safeFilename,
-  extractMediaId,
+  urlFingerprint,
   RESOLVERS,
 };
