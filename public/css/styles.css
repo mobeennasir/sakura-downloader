@@ -824,6 +824,17 @@ video {
   margin-bottom: var(--space-md);
 }
 
+/* The source link on a batch card: small, muted, one line, truncated —
+   it identifies the link without breaking the row the card sits in. */
+.media-card .source-url {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: calc(var(--space-xs) * -1);
+}
+
 /* Caption box: the post's caption on a cotton card, below the downloads. */
 .caption-box {
   background: var(--glass-bg);
@@ -1469,10 +1480,11 @@ video {
     width: 100%;
   }
 
-  /* Small screens: one card per row, full width, stacked. */
+  /* Small screens: two cards per row. The old rule stacked one card per
+     row, full width — on a phone that read as a column, not a grid. */
   .media-grid > .media-card {
-    flex: 1 1 100%;
-    max-width: 100%;
+    flex: 1 1 160px;
+    max-width: calc((100% - var(--space-md)) / 2);
   }
 }
 

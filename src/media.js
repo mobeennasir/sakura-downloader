@@ -140,7 +140,12 @@ function pickCaption(...candidates) {
 // box, as before. 25 s, not 15 s: on the 0.1 vCPU free tier the yt-dlp
 // spawn + extractor alone often takes longer than 15 s, so the caption
 // fetch kept timing out and most Facebook videos showed no caption.
-const CAPTION_FETCH_TIMEOUT_MS = 25000;
+// The caption fetch is best-effort and must never dominate the resolve:
+// yt-dlp answers in 2–5 s when it works, and fails at ~15 s when the
+// datacenter IP is throttled — waiting the full 25 s bought nothing but
+// a 15 s loading screen and, on Koyeb, a null caption anyway. 10 s keeps
+// the fast successes and cuts the throttled failures short.
+const CAPTION_FETCH_TIMEOUT_MS = 10000;
 async function fetchCaption(url) {
   try {
     const info = await withTimeout(
@@ -327,6 +332,12 @@ async function resolveInstagram(url) {
 // GET with a browser UA finds it. No third-party API, no key: the page is
 // the source. Runs only after yt-dlp fails, before btch, so image pins
 // still go through btch as before.
+// An HLS manifest (.m3u8) is a playlist, not a file — the /dl proxy cannot
+// turn one into an mp4, so an HLS-only result is not a downloadable result.
+function isHlsUrl(url) {
+  return typeof url === 'string' && /\.m3u8(\?|$)/i.test(url);
+}
+
 const PINTEREST_MP4_RE =
   /https:\/\/v1\.pinimg\.com\/videos\/[A-Za-z0-9\/_.\-]*?expMp4\/[A-Za-z0-9\/_.\-]*?_(\d+)w\.mp4/g;
 const PINTEREST_THUMB_RE =
@@ -392,6 +403,11 @@ async function fetchPinterestViaScrape(url, timeoutMs) {
       Accept:
         'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.5',
+      // A logged-in session gets the full pin page (with the video) where
+      // a datacenter IP gets a variant without it — PINTEREST_COOKIES
+      // holds the cookie header value (a Koyeb secret, never committed,
+      // never logged), same pattern as YTDLP_COOKIES. Unset = anonymous.
+      ...(config.pinterestCookies ? { Cookie: config.pinterestCookies } : {}),
     },
     validateStatus: (status) => status >= 200 && status < 400,
   });
@@ -417,18 +433,28 @@ async function resolvePinterest(url) {
   try {
     const info = await ytdlp.getInfo(url);
     const items = ytdlpInfoToItems(info, info.title || 'Pinterest media', url);
-    if (items.length > 0) {
+    // yt-dlp's Pinterest extractor returns HLS manifests (.m3u8) only for
+    // some pins — a playlist, not a file. Drop the HLS items: the page
+    // scrape below carries the progressive MP4 for the same pin, and an
+    // HLS-only result must fall through to it instead of being returned
+    // as if it were downloadable.
+    const downloadable = items.filter((it) => !isHlsUrl(it.url));
+    if (downloadable.length > 0) {
       return {
         title: info.title || 'Pinterest media',
-        thumbnail: info.thumbnail || items[0].thumbnail || null,
-        items,
+        thumbnail: info.thumbnail || downloadable[0].thumbnail || null,
+        items: downloadable,
         caption: pickCaption(info.description),
       };
+    }
+    if (items.length > 0) {
+      logger.warn('yt-dlp Pinterest returned HLS only, trying page scrape');
     }
     throw Errors.noMedia();
   } catch (err) {
     // A real verdict (private, not found, rate-limited) — do not mask it
-    // by falling back to btch.
+    // by falling back to btch. An HLS-only result (thrown as no_media
+    // above) is not a verdict: it falls through to the scrape below.
     if (
       isVerdictError(err) ||
       (err && err.name === 'SnatcherError' && err.code === 'rate_limited')
@@ -507,12 +533,22 @@ async function resolvePinterest(url) {
 async function resolveTikTok(url) {
   try {
     const info = await ytdlp.getInfo(url);
+    // TikTok's title IS the caption (yt-dlp returns the caption as the
+    // title), so copying it into title AND item titles AND caption renders
+    // the same text three times. The caption lives in `caption` only;
+    // the title is a neutral label.
     // TikTok's CDN (Akamai) rejects a direct server-side fetch of the
     // signed video URL (403), so the download must go through yt-dlp —
     // forceYtdlp makes every item carry its format id for the /dl proxy.
-    const items = ytdlpInfoToItems(info, info.title || 'TikTok video', url, { forceYtdlp: true });
+    // ytdlpInfoToItems takes the item title from the info's own title
+    // (the caption, for TikTok), so override it here — the caption lives
+    // in `caption` only.
+    const items = ytdlpInfoToItems(info, 'TikTok video', url, { forceYtdlp: true }).map((item) => ({
+      ...item,
+      title: 'TikTok video',
+    }));
     if (items.length > 0) {
-      return { title: info.title || 'TikTok video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description) };
+      return { title: 'TikTok video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description) };
     }
     throw Errors.noMedia();
   } catch (err) {
@@ -531,22 +567,18 @@ async function resolveTikTok(url) {
             url: videoUrl,
             thumbnail: data.thumbnail || null,
             type: 'video',
-            title: data.title,
+            title: 'TikTok video',
           },
           'TikTok video'
         )
       )
-      .filter(Boolean)
-      // Same Akamai block as the primary path: the ttdl URL is a TikTok
-      // CDN link too, so the download goes through yt-dlp (format
-      // 'download' is yt-dlp's combined mp4 for TikTok) instead of the
-      // proxy fetching the CDN URL directly.
-      .map((item) => ({
-        ...item,
-        ytdlp: { url, formatId: 'download', ext: 'mp4', client: 'tv_embedded' },
-      }));
+      .filter(Boolean);
+    // The ttdl URL is a dld.tiktokio.com proxy link (not a TikTok CDN
+    // link): it answers 200 + video/mp4 to a plain server-side GET, so
+    // the item downloads through the /dl proxy directly — no yt-dlp
+    // re-run, which is what 502'd on the throttled Koyeb IP.
     if (items.length > 0) {
-      return { title: data.title || 'TikTok video', thumbnail: data.thumbnail || null, items, caption: pickCaption(data.title) };
+      return { title: 'TikTok video', thumbnail: data.thumbnail || null, items, caption: pickCaption(data.title) };
     }
   }
   throw Errors.noMedia();
@@ -620,36 +652,50 @@ async function resolveFacebook(url) {
   // fbdown carries no caption text, so read the post's description with
   // yt-dlp alongside — best effort, never blocks the download.
   const captionPromise = fetchCaption(url);
-  try {
-    const data = await withTimeout(fbdown(url), config.upstreamTimeoutMs, 'Facebook');
-    if (data && data.status === true && (data.HD || data.Normal_video)) {
-      const items = [data.HD, data.Normal_video]
-        .filter(Boolean)
-        .map((videoUrl, i) =>
-          normalizeItem(
-            {
-              url: videoUrl,
-              type: 'video',
-              title: 'Facebook video',
-              quality: i === 0 && data.HD ? 'HD' : 'SD',
-            },
-            'Facebook video'
-          )
-        )
-        .filter(Boolean);
-      const best = dedupeByUrl(items);
-      if (best.length > 0) {
-        return { title: 'Facebook video', thumbnail: null, items: best, caption: await captionPromise };
-      }
+  // fbdown is intermittent (works ~2/3 times live) — one fast retry on a
+  // no-video response before falling through to the slow yt-dlp path,
+  // which burns ~27 s to a 504 when the backend is having a bad minute.
+  // A timeout is not retried: the 30 s budget would not survive a second
+  // full wait.
+  let data = null;
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      data = await withTimeout(fbdown(url), config.upstreamTimeoutMs, 'Facebook');
+      if (data && data.status === true && (data.HD || data.Normal_video)) break;
+      lastErr = new Error((data && data.message) || 'No media URL found');
+      data = null;
+    } catch (err) {
+      lastErr = err;
+      data = null;
+      if (err && err.code === 'timeout') break;
     }
-    throw new Error((data && data.message) || 'No media URL found');
-  } catch (err) {
-    logger.warn({ err: err.message }, 'fbdown failed, trying yt-dlp for Facebook');
-    const info = await ytdlp.getInfo(url);
-    const items = ytdlpInfoToItems(info, 'Facebook video', url);
-    if (items.length === 0) throw Errors.noMedia();
-    return { title: info.title || 'Facebook video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description) };
   }
+  if (data) {
+    const items = [data.HD, data.Normal_video]
+      .filter(Boolean)
+      .map((videoUrl, i) =>
+        normalizeItem(
+          {
+            url: videoUrl,
+            type: 'video',
+            title: 'Facebook video',
+            quality: i === 0 && data.HD ? 'HD' : 'SD',
+          },
+          'Facebook video'
+        )
+      )
+      .filter(Boolean);
+    const best = dedupeByUrl(items);
+    if (best.length > 0) {
+      return { title: 'Facebook video', thumbnail: null, items: best, caption: await captionPromise };
+    }
+  }
+  logger.warn({ err: lastErr && lastErr.message }, 'fbdown failed, trying yt-dlp for Facebook');
+  const info = await ytdlp.getInfo(url);
+  const items = ytdlpInfoToItems(info, 'Facebook video', url);
+  if (items.length === 0) throw Errors.noMedia();
+  return { title: info.title || 'Facebook video', thumbnail: info.thumbnail || null, items, caption: pickCaption(info.description) };
 }
 
 // ---------------------------------------------------------------------------
@@ -1051,6 +1097,7 @@ module.exports = {
   urlFingerprint,
   extractPinterestVideo,
   fetchPinterestViaScrape,
+  isHlsUrl,
   extractTwitterPhotos,
   fetchTwitterViaScrape,
   classifyMediaBytes,

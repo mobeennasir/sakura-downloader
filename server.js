@@ -538,6 +538,9 @@ app.get('/dl', async (req, res) => {
     });
     upstream.data.pipe(res);
   } catch (err) {
+    // A /dl failure used to leave no trace at all — the 502s in the log
+    // carried no cause. Log it so the next diagnosis has the error.
+    logger.warn({ err: err && err.message, path: req.path, query: req.query }, 'dl failed');
     if (!res.headersSent) sendApiError(res, err);
     else res.end();
   }

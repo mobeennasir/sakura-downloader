@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { extractPinterestVideo } from '../src/media.js';
+import { extractPinterestVideo, isHlsUrl } from '../src/media.js';
 
 // The pin page carries the video as a progressive MP4 in its HTML:
 // https://v1.pinimg.com/videos/iht/expMp4/<hash>_<width>w.mp4 — plain in the
@@ -51,5 +51,28 @@ describe('extractPinterestVideo', () => {
   it('does not mistake an HLS manifest for a video file', () => {
     const page = `<html><head><title>Clip</title></head><body>{"u":"https://v1.pinimg.com/videos/iht/hls/abc123def456.m3u8"}</body></html>`;
     expect(extractPinterestVideo(page)).toBeNull();
+  });
+
+  it('returns null for a pin whose page carries only HLS manifests (several widths, no expMp4)', () => {
+    // His pin (pin.it/6dZmTUDw1): yt-dlp returns only .m3u8 formats and
+    // the page carries the same manifests — no progressive MP4 anywhere.
+    // The resolver must fall through (to btch) instead of returning a
+    // playlist as if it were a file.
+    const page = `<html><head><title>Pin</title></head><body>{"a":"https://v1.pinimg.com/videos/iht/hls/38/63/ab/3863abb7fedf4c59c6f8daa52045bb7a_240w.m3u8","b":"https://v1.pinimg.com/videos/iht/hls/38/63/ab/3863abb7fedf4c59c6f8daa52045bb7a_720w.m3u8","c":"https://v1.pinimg.com/videos/iht/hls/38/63/ab/3863abb7fedf4c59c6f8daa52045bb7a_audio.m3u8"}</body></html>`;
+    expect(extractPinterestVideo(page)).toBeNull();
+  });
+});
+
+describe('isHlsUrl', () => {
+  it('matches .m3u8 manifests, with or without a query string', () => {
+    expect(isHlsUrl('https://v1.pinimg.com/videos/iht/hls/abc_720w.m3u8')).toBe(true);
+    expect(isHlsUrl('https://example.com/stream.m3u8?token=abc')).toBe(true);
+  });
+
+  it('does not match progressive MP4s or non-strings', () => {
+    expect(isHlsUrl('https://v1.pinimg.com/videos/iht/expMp4/abc_720w.mp4')).toBe(false);
+    expect(isHlsUrl('https://example.com/video.mp4')).toBe(false);
+    expect(isHlsUrl(null)).toBe(false);
+    expect(isHlsUrl(undefined)).toBe(false);
   });
 });

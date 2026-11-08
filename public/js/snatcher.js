@@ -202,6 +202,22 @@
     if (downloadPercent) downloadPercent.textContent = '0%';
     if (downloadBytes) downloadBytes.textContent = 'Getting your file ready…';
     if (downloadElapsed) downloadElapsed.textContent = '';
+    if (downloadCancel) downloadCancel.textContent = 'Cancel';
+  }
+
+  // A failed download shows its error in the loader, with a Dismiss
+  // button — it used to fall back to a plain navigation, which landed
+  // the user on a bare 502/JSON page that read as a dead page.
+  function showDownloadError(message) {
+    if (!downloadLoader) return;
+    downloadLoader.classList.add('is-visible');
+    downloadLoader.classList.remove('is-waiting');
+    downloadLoader.setAttribute('aria-hidden', 'false');
+    if (downloadName) downloadName.textContent = 'Download failed';
+    if (downloadPercent) downloadPercent.textContent = '—';
+    if (downloadBytes) downloadBytes.textContent = message;
+    if (downloadElapsed) downloadElapsed.textContent = '';
+    if (downloadCancel) downloadCancel.textContent = 'Dismiss';
   }
 
   function hideDownloadLoader() {
@@ -236,9 +252,17 @@
         downloadElapsed.textContent = `${Math.floor((Date.now() - started) / 1000)}s`;
       }
     }, 1000);
+    // The fetch used to hang forever when the server stalled (no timeout
+    // at all) — the loader sat at 0% until the user gave up. Cap it at
+    // 60 s so a stalled download fails visibly instead of hanging.
+    let timedOut = false;
+    const fetchTimer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 60000);
     try {
       const res = await fetch(url, { signal: controller.signal });
-      if (!res.ok) throw new Error(`download failed: ${res.status}`);
+      if (!res.ok) throw new Error(`server answered ${res.status}`);
       if (!total) {
         const len = parseInt(res.headers.get('content-length') || '', 10);
         if (Number.isFinite(len) && len > 0) total = len;
@@ -287,23 +311,35 @@
       setStatus('Downloaded.');
     } catch (err) {
       if (err && err.name === 'AbortError') {
-        hideDownloadLoader();
-        setStatus('Download cancelled.');
+        if (timedOut) {
+          showDownloadError('Took too long — try again.');
+        } else {
+          hideDownloadLoader();
+          setStatus('Download cancelled.');
+        }
       } else {
-        // Any failure falls back to the browser's own download — the file
-        // still arrives, just without the progress card.
-        hideDownloadLoader();
-        navigateDownload(url);
+        showDownloadError(
+          err && err.message
+            ? `Download failed (${err.message}). Try again.`
+            : 'Download failed. Try again.'
+        );
       }
     } finally {
       clearInterval(elapsedTimer);
+      clearTimeout(fetchTimer);
       if (downloadAbort === controller) downloadAbort = null;
     }
   }
 
   if (downloadCancel) {
     downloadCancel.addEventListener('click', () => {
-      if (downloadAbort) downloadAbort.abort();
+      if (downloadAbort) {
+        downloadAbort.abort();
+      } else {
+        // Error state (no fetch in flight): the button is Dismiss.
+        hideDownloadLoader();
+        downloadCancel.textContent = 'Cancel';
+      }
     });
   }
 
@@ -371,7 +407,9 @@
   // caption box sits inside the card, below the buttons, so every video
   // carries its own caption with it. Single mode passes nothing and
   // keeps the one shared caption box below the grid instead.
-  function mediaCard(item, index, caption) {
+  // `sourceUrl` (batch mode only) is the link the card came from, shown
+  // shortened (domain + path, no tracking query) under the title.
+  function mediaCard(item, index, caption, sourceUrl) {
     const card = el('article', { class: 'media-card' });
     const preview = el('div', { class: 'preview' });
     // HLS manifests (.m3u8) do not play in a plain <video> element — show
@@ -401,6 +439,16 @@
     const body = el('div', { class: 'body' });
     body.appendChild(el('p', { class: 'title', text: item.title || `${item.type === 'video' ? 'Video' : 'Photo'} ${index + 1}` }));
     body.appendChild(el('p', { class: 'meta', text: metaLine(item) }));
+    if (sourceUrl) {
+      let short = String(sourceUrl);
+      try {
+        const u = new URL(short);
+        short = `${u.hostname}${u.pathname}`;
+      } catch {
+        // Unparseable — show it as-is.
+      }
+      body.appendChild(el('p', { class: 'source-url', text: short }));
+    }
 
     const actions = el('div', { class: 'actions' });
     const download = el('a', {
@@ -570,23 +618,31 @@
       head.appendChild(all);
       container.appendChild(head);
     }
+    // One shared grid for the whole batch: cards from different links sit
+    // side by side in rows. A per-link grid put one card per row whenever
+    // a link had a single video — six single-video links read as a column,
+    // even on desktop. Each card carries its own source link (shortened,
+    // under the title), so the cards still show which link they came from
+    // without a full-width header breaking the row.
+    if (ok.length > 0) {
+      const grid = el('div', { class: 'media-grid' });
+      ok.forEach((result) => {
+        result.mediaItems.forEach((item, i) =>
+          grid.appendChild(mediaCard(item, i, result.caption, result.url))
+        );
+      });
+      container.appendChild(grid);
+    }
+    // Failed links keep their own block, after the grid — a failed link
+    // never blocks the rest.
     results.forEach((result) => {
+      if (result.success && result.mediaItems && result.mediaItems.length > 0) return;
       const group = el('div', { class: 'batch-group' });
       group.appendChild(el('p', { class: 'batch-url', text: result.url }));
-      if (result.success && result.mediaItems && result.mediaItems.length > 0) {
-        const head = el('div', { class: 'results-head' });
-        head.appendChild(el('h2', { text: result.title || 'Media' }));
-        head.appendChild(el('p', { text: `${result.mediaItems.length} item${result.mediaItems.length === 1 ? '' : 's'}` }));
-        group.appendChild(head);
-        const grid = el('div', { class: 'media-grid' });
-        result.mediaItems.forEach((item, i) => grid.appendChild(mediaCard(item, i, result.caption)));
-        group.appendChild(grid);
-      } else {
-        const empty = el('div', { class: 'empty-state' });
-        empty.appendChild(el('h3', { text: 'Could not grab this one.' }));
-        empty.appendChild(el('p', { text: result.error || 'No media found.' }));
-        group.appendChild(empty);
-      }
+      const empty = el('div', { class: 'empty-state' });
+      empty.appendChild(el('h3', { text: 'Could not grab this one.' }));
+      empty.appendChild(el('p', { text: result.error || 'No media found.' }));
+      group.appendChild(empty);
       container.appendChild(group);
     });
   }

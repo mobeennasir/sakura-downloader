@@ -428,6 +428,9 @@ function streamDownload(res, url, formatId, client) {
     if (finished) return;
     finished = true;
     clearTimeout(timer);
+    // A failed stream used to answer a bare 502 with no log line at all —
+    // log the cause (the /dl 502s in the Koyeb log carried no error).
+    logger.warn({ url, formatId }, 'streamDownload spawn failed');
     if (!res.headersSent) res.status(502).end();
     else res.end();
   });
@@ -437,10 +440,13 @@ function streamDownload(res, url, formatId, client) {
     clearTimeout(timer);
     if (code === 0) {
       res.end();
-    } else if (!res.headersSent) {
-      res.status(502).end();
     } else {
-      res.end();
+      logger.warn({ url, formatId, code, bytes }, 'streamDownload yt-dlp exited non-zero');
+      if (!res.headersSent) {
+        res.status(502).end();
+      } else {
+        res.end();
+      }
     }
   });
   return child;

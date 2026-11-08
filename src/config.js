@@ -18,6 +18,13 @@ const config = {
   ytdlpCookies: process.env.YTDLP_COOKIES || null,
   ytdlpCookiesFile: process.env.YTDLP_COOKIES_FILE || null,
 
+  // Pinterest login cookies, for the pin-page scrape. Pinterest serves a
+  // datacenter IP a pin page without the video; a logged-in session gets
+  // the full page (with the progressive MP4). PINTEREST_COOKIES holds the
+  // raw Cookie header value (set it in Koyeb as a secret env var — never
+  // commit it, never log it). Unset = anonymous scrape, as before.
+  pinterestCookies: process.env.PINTEREST_COOKIES || null,
+
   // WhatsApp number the error page's "Report on WhatsApp" button writes
   // to (wa.me link, digits only, no +). The owner's number, given for
   // error reports — it is public by design: the button is how users reach
